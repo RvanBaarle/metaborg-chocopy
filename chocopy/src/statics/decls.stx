@@ -1,0 +1,124 @@
+module statics/decls
+
+imports
+  signatures/ID-sig
+  
+  statics/types
+
+signature
+  namespaces
+  	Var			: ID
+  	Class		: ID
+  	Member		: ID
+  relations
+  	scopeOf 	: occurrence -> (scope * int)
+  	type 		: occurrence -> (TYPE * scope * ID)
+   	className 	: 			 -> ID
+  name-resolution
+  	labels P I
+  	resolve Var filter P* min $ < P
+  	resolve Class filter P* min $ < P
+  	resolve Member filter I* min $ < I
+  
+rules
+  declOk			: scope * ID
+  declVar			: scope * ID * TYPE * ID
+  declFun			: scope * ID * TYPE
+  declClassFun		: scope * ID * TYPE
+  declClass			: scope * scope * ID * int
+  declMember		: scope * ID * TYPE 
+  
+  resolveVar 		: scope * ID -> (TYPE * scope * ID)
+  resolveFun	 	: scope * ID -> TYPE
+  resolveMember	 	: scope * ID -> TYPE
+  resolveClass		: scope * ID -> (scope * int)
+  
+  overrideOk 		: scope * ID * TYPE
+  checkOverride 	: TYPE * ID * list((path * (occurrence * (TYPE * scope * ID))))
+  
+rules // declare class
+
+  declClass(gs, cs, id, i) :-
+  	gs -> Class{id} with scopeOf((cs, i)),
+  	!className[id] in cs,
+  	Class{id} in gs |-> [(_, (_))] 
+  	  | error $[Class [id] is defined more than once].
+  
+  resolveClass(s, id) = (s', i') :- {id'} @id.ref := id',
+  	scopeOf of Class{id} in s |-> [(_, (Class{id'}, (s', i')))|_] 
+  	  | error $[Class [id] is not defined].
+  
+  declMember(s, id, t) :-
+  	s -> Member{id} with type((t, s, id)),
+  	overrideOk(s, id, t).
+  
+  overrideOk(s, id, _) :- 
+  	query decl
+        filter I* and { Member{ id' } :- id' == id }
+        min $ < I and { _, _ :- false }
+        in s |-> [(_, _)]         
+     | error $[Field [id] cannot be overwritten].
+        
+  overrideOk(s, id, t@FUN(_, _)) :- {l}
+    query type
+        filter e and { Member{ id' } :- id' == id }
+        min $ < I and { _, _ :- false }
+        in s |-> [_] 
+      | error $[Cannot redefine method [id] in the same class],
+  	query type
+        filter I* and { Member{ id' } :- id' == id }
+        min $ < I and { _, _ :- false }
+        in s |-> l,
+  	checkOverride(t, id, l) 
+  	  | error $[Overriding function [id] does not have the same signature].
+   
+  checkOverride(_, _, []).
+
+  checkOverride(T@FUN(RT, [ST | ATs]), id, [(_, (Member{id'}, (FUN(RT, [AT | ATs]), _, _) )) | t]) :- @id.ref += id',
+  	isSubtype(AT, ST),
+  	checkOverride(T, id, t).
+  	
+  declVar(s, id, t, o) :- 
+  	declOk(s, id),
+  	s -> Var{id} with type((t, s, o)),
+  	Var{id} in s |-> [(_, (_))] 
+  	  | error $[Name [id] is already defined in this scope].
+  	
+  declFun(s, id, t) :-
+  	declOk(s, id),
+  	s -> Var{id} with type((t, s, id)),
+  	query 
+  		decl 
+  		filter e 
+  		and { Var{id'} :- id == id' } 
+  		min  and { _, _ :- true }
+  		in s |-> [(_, (_))].
+  		
+  declClassFun(s, id, t) :-
+  	s -> Var{id} with type((t, s, id)),
+  	query 
+  		decl 
+  		filter e 
+  		and { Var{id'} :- id == id' } 
+  		min  and { _, _ :- true }
+  		in s |-> [(_, (_))].
+  		
+  declOk(s, id)       :- Class{id} in s |-> [] | error $[Cannot shadow class [id]].  	
+  declOk(_, "str")    :- false | error $[Cannot shadow class str].
+  declOk(_, "bool")   :- false | error $[Cannot shadow class bool].
+  declOk(_, "object") :- false | error $[Cannot shadow class object].
+  declOk(_, "int")    :- false | error $[Cannot shadow class int].
+  
+  resolveVar(s, x) = (T, s', o) :- {x'} @x.ref += x',
+  	type of Var{x} in s |-> [(_, (Var{x'}, (T, s', o)))|_] 
+  	  | error $[Variable [x] not defined].
+  	
+  resolveMember(s, x) = T :- {x'} @x.ref := x',
+  	type of Member{x} in s |-> [(_, (Member{x'}, (T, _, _)))|_] 
+  	  | error $[Member [x] not defined].
+  	
+  resolveFun(s, x) = T :- {x'} @x.ref := x',
+  	type of Var{x} in s |-> [(_, (Var{x'}, (T, _, _)))|_] 
+  	  | error $[Function [x] not defined].
+
+  

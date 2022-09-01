@@ -1,0 +1,71 @@
+module Definition
+
+imports Type
+imports ID
+imports Common
+imports Statement
+
+context-free sorts
+  ClassDef
+  VarDef
+  FuncDef
+ 
+  Definition
+  
+  ClassBody
+  ClassBodyMember
+  FuncBodyMember
+  FuncBody
+  
+  RetType
+  
+context-free syntax
+ 
+  ClassDef.ClassDef = <
+    class <ID>(<ID>): 
+  	<body:ClassBody>
+  > {layout(0.first.line == 5.last.line 
+         && 6.first.line > 0.first.line 
+         && 6.first.col > 0.first.col) }
+  
+  VarDef.VarDef = <
+    <TypedVar> = <Literal>
+  >
+  
+  FuncDef.FuncDef = <
+    def <ID>(<{TypedVar ", "}*>) <RetType>:
+  	<body:FuncBody>
+  > {layout(0.first.line == 6.first.line 
+         && 7.first.line > 0.first.line 
+         && 7.first.col > 0.first.col)}
+  
+  Definition = ClassDef
+  Definition = VarDef {layout(0.first.line == 0.last.line)}
+  Definition = FuncDef
+  
+  ClassBody	= Pass
+  
+  ClassBody = <
+    <c:{ClassBodyMember "\n\n"}+>
+  > {layout (align-list c)}
+  
+  ClassBodyMember = VarDef
+  ClassBodyMember = FuncDef
+  
+  FuncBody.FuncBody = <
+  	<a:FuncBodyMember*>
+  	<b:Statement+>
+  > {layout(align-list a 
+         && align-list b 
+         && align a b)}
+  
+  FuncBodyMember.Global   = <global <ID>>
+  FuncBodyMember.Nonlocal = <nonlocal <ID>>
+  FuncBodyMember          = VarDef
+  FuncBodyMember          = FuncDef
+  
+  RetType.ReturnsNone = <>
+  RetType.Returns     = "->" Type
+  
+template options
+  keyword -/- [a-zA-Z0-9\_]

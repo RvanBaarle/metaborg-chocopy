@@ -1,0 +1,266 @@
+module dynamics/stmts
+
+imports
+  dynamics/stdlib
+  dynamics/native
+  
+  dynamics/exps
+  dynamics/main
+  
+  signatures/Statement-sig
+  
+rules
+  compileStmt :: 'Statement -> Pluggable
+  
+  compileStmt(Exp(e)) = compileExp(e)
+  compileStmt(Raise(e)) = {
+    v <- compileExp(e)
+    $raise@([v])
+  }
+  
+  compileStmt(Assign(a, b)) = {
+    // in chocopy, the righthand is evaluated first
+    v <- compileExp(b)
+    compileAssigns(a, v)
+  }
+  
+  compileAssigns :: List('AssignTarget) * @cval -> Pluggable
+  compileAssigns([], _) = hole
+  compileAssigns([Target(hd)|tl], e) = {
+    compileAssign(hd, e)
+    compileAssigns(tl, e)
+  }
+  
+  compileAssign :: 'Target * @cval -> Pluggable
+  compileAssign(t@Var(x), v) = {
+    possiblyBoxed <- compileExpBoxingHelper(box(t), v)
+    #ref-store(var(x), possiblyBoxed)
+  }
+  compileAssign(t@Index(x, y), v) = {
+    possiblyBoxed <- compileExpBoxingHelper(box(t), v)
+    tgt <- compileExp(x)
+    idx <- compileExp(y)
+    assertNotNone(tgt)
+    arrayval <- #record-read(tgt, str('"value"))
+    assertArrayWithinBounds(arrayval, idx)
+    #array-write(arrayval, idx, possiblyBoxed)
+  }
+  compileAssign(t@Member(x, y), v) = {
+    possiblyBoxed <- compileExpBoxingHelper(box(t), v)
+    tgt <- compileExp(x)
+    assertNotNone(tgt)
+    #record-write(tgt, str(y), possiblyBoxed)
+  }
+  
+  compileStmt(ReturnNone()) = $return@([none()])
+  compileStmt(Return(a)) = {
+    v <- compileExpBoxing(a)
+    $return@([v])
+  }
+  compileStmt(PassStmt()) = hole
+  
+  compileStmt(If(a, b)) = {
+    av <- compileExp(a)
+    if #int-eq(av, int('1)) then {
+      compileBlock(b)
+      after@([])
+    } else {
+      after@([])
+    }
+  } label after/0:
+  compileStmt(IfElse(a, b, c)) = {
+    av <- compileExp(a)
+    if #int-eq(av, int('1)) then {
+      compileBlock(b)
+      after@([])
+    } else {
+      compileElifElse(after, c)
+    }
+  } label after/0:
+  compileStmt(While(a, b)) = {
+    loop <- fresh-var(whileBody)
+  
+    fix {
+      fun loop([]) = {
+        condv <- compileExp(a)
+        if #int-eq(condv, int('1)) then {
+          compileBlock(b)
+          loop@([])
+        } else {
+          after@([])
+        }
+      }
+    }
+    
+    loop@([])
+  } label after/0:
+  
+  // handle for differently depending on whether we're iterating over a string or list
+  compileStmt(x@For(a, c, b)) = compileFor(type(c), x)
+  
+  compileFor :: List('TYPE) * 'Statement -> Pluggable
+  compileFor([LIST(_)|_], For(a, b, c)) = { // array
+    bv <- compileExp(b)
+    assertNotNone(bv)
+    barr <- #record-read(bv, str('"value"))
+    len <- #array-length(barr)
+    
+    body <- fresh-var(body)
+    i <- fresh-var(i)
+    
+    fix {
+      fun body([i]) = if #int-eq(i, len) then {
+        after@([])
+      } else {
+        arrv <- #array-read(barr, i)
+        #ref-store(var(a), arrv)
+        compileBlock(c)
+        ii <- #int-add(i, int('1))
+        body@([ii])
+      }
+    }
+    
+    body@([int('0)])
+  } label after/0:
+  compileFor(_, For(a, b, c)) = { // string
+    bv <- compileExp(b)
+    len <- #str-length(bv)
+    
+    body <- fresh-var(body)
+    i <- fresh-var(i)
+    
+    fix {
+      fun body([i]) = if #int-eq(i, len) then {
+        after@([])
+      } else {
+        strv <- #str-index(bv, i)
+        #ref-store(var(a), strv)
+        compileBlock(c)
+        ii <- #int-add(i, int('1))
+        body@([ii])
+      }
+    }
+    
+    body@([int('0)])
+  } label after/0:
+  
+  compileBlock :: 'Block -> Pluggable
+  compileBlock(Block(b)) = compileStmts(b)
+  
+  compileElifElse :: @cval * 'ElifElse -> @cexp
+  compileElifElse(after, ElifElse(cond, body, els)) = {
+    av <- compileExp(cond)
+    if #int-eq(av, int('1)) then {
+      compileBlock(body)
+      after@([])
+    } else {
+      compileElifElse(after, els)
+    }
+  }
+  compileElifElse(after, Elif(cond, body)) = {
+    av <- compileExp(cond)
+    if #int-eq(av, int('1)) then {
+      compileBlock(body)
+      after@([])
+    } else {
+      after@([])
+    }
+  }
+  compileElifElse(after, Else(body)) = {
+    compileBlock(body)
+    after@([])
+  }
+  
+  compileStmt(Try(body, excepts, NoTryFinally())) = {
+    handler <- fresh-var(handler)
+    raised <- fresh-var(raised)
+    
+    fix {
+      fun handler([raised]) = {
+        exnty <- #record-read(raised, str('"$type"))
+        compileExcepts(excepts, raised, exnty, after)
+      }
+    }
+    
+    with $raise = handler do
+      compileBlock(body)
+      
+    after@([])
+  } label after/0:
+
+  compileStmt(Try(body, excepts, TryFinally(finallyBody))) = {
+    finallyFromReturn <- fresh-var(finallyRet)
+    finallyFromException <- fresh-var(finallyExn)
+    finallyFromNormalExecution <- fresh-var(finallyCont)
+    
+    finally <- fresh-var(finally)
+    fafter <- fresh-var(after)
+    val <- fresh-var(val)
+    
+    handler <- fresh-var(handler)
+    raised <- fresh-var(raised)
+    
+    fix {
+      fun handler([raised]) = {
+        exnty <- #record-read(raised, str('"$type"))
+        with $return = finallyFromReturn, $raise = finallyFromException do
+          compileExcepts(excepts, raised, exnty, finallyFromNormalExecution)
+      }
+      
+      // called when we reach the finally block through normal
+      // execution (either after the try finishes or once a
+      // catch block is done)
+      fun finallyFromNormalExecution([]) = {
+        finally@([after])
+      }
+      
+      // called when we reach the finally block through a return
+      // in either the exception handler or the body
+      fun finallyFromReturn([val]) = {
+         finally@([tmp]) label tmp/0:
+         $return@([val]) 
+      }
+      
+      // called when we reach the finally block through an exception
+      // raised in the handler of our current exception
+      fun finallyFromException([val]) = {
+         finally@([tmp]) label tmp/0:
+         $raise@([val]) 
+      }
+      
+      // actual finally body, extracted out to prevent duplicate
+      // codegen
+      fun finally([fafter]) = {
+        compileBlock(finallyBody)
+        fafter@([])
+      }
+    }
+    
+    with $return = finallyFromReturn, $raise = handler do
+      compileBlock(body)
+      
+    finallyFromNormalExecution@([])
+  } label after/0:
+
+
+  compileExcepts :: List('TryExcept) * @cval * @cval * @cval -> @cexp
+  compileExcepts([], v, _, _) = $raise@([v])
+  compileExcepts([TryExcept(Type(t), id, body)|rest], val, exnty, after) = {
+    if #str-eq(exnty, str(t)) then {
+      vref <- #ref-new(val)
+      let var(id) = vref in {
+        compileBlock(body)
+        after@([])
+      }
+    } else {
+      compileExcepts(rest, val, exnty, after)
+    }
+  }
+
+rules
+  compileStmts :: List('Statement) -> Pluggable
+  compileStmts([]) = hole
+  compileStmts([h|tl]) = {
+    compileStmt(h)
+    compileStmts(tl)
+  }

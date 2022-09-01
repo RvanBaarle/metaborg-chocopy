@@ -1,0 +1,15 @@
+module Program
+
+imports Statement
+imports Definition
+
+context-free start-symbols Program
+  
+context-free sorts Program
+
+context-free syntax
+
+  Program.Program = <
+  	<defs:{Definition "\n\n"}*>
+  	<stmts:Statement*>
+  > {layout (align-list defs && align-list stmts && align defs stmts)}

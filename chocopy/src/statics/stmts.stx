@@ -1,0 +1,171 @@
+module statics/stmts
+
+imports
+	signatures/Statement-sig
+	statics/types
+	statics/decls
+	statics/expressions
+
+rules // interface
+
+  stmtOk			: scope * int * Statement * TYPE
+  stmtsOk 	  		  maps stmtOk(*, *, list(*), *)
+  
+  assignOk			: scope * AssignTarget * TYPE
+  assignsOk			: scope * list(AssignTarget) * TYPE
+  
+  elseOk			: scope * int * ElifElse * TYPE
+  forOk 			: scope * int * ID * TYPE * list(Statement) * TYPE
+  
+  actuallyReturns 	: int * list(Statement) -> int
+  actuallyReturnsBranch : list(Statement) * ElifElse -> int
+  
+rules 
+
+  stmtOk(s, 0, Return(_), _) :- 
+  	false | error $[Return statement not allowed in top level].
+  	
+  stmtOk(s, 0, ReturnNone(), _) :- 
+  	false | error $[Return statement not allowed in top level].
+  	
+  stmtOk(s, _, Raise(e), _) :- {T}
+    expOk(s, e) == T,
+    try { T == CLASS(_, _) } | error $[Can only raise custom class instances.].
+
+  stmtOk(s, _, r@ReturnNone(), T) :- @r.type += NONETYPE(),
+  	isSubtype(T, NONETYPE()).
+  	
+  stmtOk(s, i, Try(Block(body), excepts, finally), RT) :-
+    stmtsOk(s, i, body, RT),
+    exceptsOk(s, i, excepts, RT),
+    finallyOk(s, i, finally, RT).
+    
+  exceptOk : scope * int * TryExcept * TYPE
+  exceptsOk maps exceptOk(*, *, list(*), *)
+  exceptOk(s, i, TryExcept(ty, bind, Block(body)), RT) :- {ET s'}
+    typeOk(s, ty) == ET,
+    new s', s' -P-> s,
+    declVar(s', bind, ET, bind),
+    stmtsOk(s', i, body, RT),
+    try { ET == CLASS(_, _) } | error $[Can only catch class exceptions.].
+    
+  finallyOk : scope * int * TryFinally * TYPE
+  finallyOk(_, _, NoTryFinally(), _).
+  finallyOk(s, i, TryFinally(Block(body)), RT) :-
+    stmtsOk(s, i, body, RT).
+  	
+//  stmtOk(s, _, SimpleStatement2Statement(Return2SimpleStatement(r@ReturnNone())), OBJECT()) :- @r.type += OBJECT().
+  
+  stmtOk(s, _, r@Return(e), RT) :- {T} @r.type += RT,
+  	expOk(s, e) == T,
+  	boxExpIfNeeded(e, T, RT),
+  	isSubtype(RT, T).
+  	
+  stmtOk(s, _, PassStmt(), _).
+  
+  stmtOk(s, _, Exp(e), _) :- {T} 
+  	expOk(s, e) == T,
+  	notFunctionOrClass(T) | error $[Functions are not first-class citizens].
+  	 
+  stmtOk(s, _, Assign(targets, e), _) :- {T}
+  	expOk(s, e) == T,
+  	assignsOk(s, targets, T).
+  
+  assignsOk(s, [], _).
+  assignsOk(s, [target | targets], T) :- 
+ 	assignOk(s, target, T),
+ 	assignsOk(s, targets, T).
+  assignsOk(s, [target | [target2 | targets]], LIST(NONETYPE())) :- false | error $[Right-hand side of multiple assignment may not be of type List(<None>)].
+  
+  assignOk(s, Target(Var2Target(v@Var(id))), ST) :- {T s'} @v.type += T,
+  	resolveVar(s, id) == (T, s', _),
+  	isSubtype(T, ST),
+  	boxIfNeeded(astId(v), ST, T),
+  	try { s == s' } | error $[Cannot assign to variable that is not explicitly defined in this scope].
+  	
+  assignOk(s, Target(Index2Target(t@Index(list, in))), ST) :- {T}
+  	expOk(s, list) == LIST(T),
+  	expOk(s, in) == INT(),
+  	isSubtype(T, ST),
+  	boxIfNeeded(astId(t), ST, T).
+  	
+  assignOk(s, Target(Member2Target(m)), ST) :- {T}
+  	expOk(s, Member2Exp(m)) == T,
+  	isSubtype(T, ST),
+  	boxIfNeeded(astId(m), ST, T).
+
+  	
+  stmtOk(s, i, If(e, Block(stmts)), RT) :-
+  	expOk(s, e) == BOOL(),
+  	stmtsOk(s, i, stmts, RT).
+  	
+  stmtOk(s, i, While(e, Block(stmts)), RT) :-
+  	expOk(s, e) == BOOL(),
+  	stmtsOk(s, i, stmts, RT).
+  	
+  stmtOk(s, i, For(id, e, Block(stmts)), RT) :- {T s'}
+  	expOk(s, e) == T,
+  	forOk(s, i, id, T, stmts, RT).
+
+
+
+  forOk(s, i, id, LIST(T), stmts, RT) :- {s' T'} @id.type += T',
+  	resolveVar(s, id) == (T', s', _),
+  	isSubtype(T', T),
+  	stmtsOk(s, i, stmts, RT),
+  	try { s == s' } | error $[Cannot assign to variable that is not explicitly defined in this scope].
+  	
+ forOk(s, i, id, STRING(), stmts, RT) :- {s' T} @id.type += T,
+ 	resolveVar(s, id) == (T, s', _),
+ 	isSubtype(T, STRING()),
+  	stmtsOk(s, i, stmts, RT),
+  	try { s == s' } | error $[Cannot assign to variable that is not explicitly defined in this scope].
+  	
+  stmtOk(s, i, IfElse(e, Block(stmts), else), RT) :-
+  	expOk(s, e) == BOOL(),
+  	stmtsOk(s, i, stmts, RT),
+  	elseOk(s, i, else, RT).
+  	
+  elseOk(s, i, ElifElse(e, Block(stmts), else), RT) :-
+  	expOk(s, e) == BOOL(),
+  	stmtsOk(s, i, stmts, RT),
+  	elseOk(s, i, else, RT).
+  	
+  elseOk(s, i, Elif(e, Block(stmts)), RT) :-
+  	expOk(s, e) == BOOL(),
+  	stmtsOk(s, i, stmts, RT).
+  	
+  elseOk(s, i, Else(Block(stmts)), RT) :-
+  	stmtsOk(s, i, stmts, RT).
+
+rules // actually returns 
+
+//  actuallyReturns(0, NONETYPE(), []) = 1.
+//  actuallyReturns(0, OBJECT(), []) = 1.
+
+  actuallyReturns(1, _) = 1.
+  
+  actuallyReturns(0, []) = 0.
+  
+  actuallyReturns(0, [h  | t]) = actuallyReturns(0, t).
+  
+  actuallyReturns(0, [ReturnNone()  | _]) = 1.
+  actuallyReturns(0, [Return(_)  | _]) = 1.
+  
+//  actuallyReturns(0, T, [SimpleStatement2Statement(Pass2SimpleStatement(_))  | t]) = 1 :- {j}
+//  	actuallyReturns(0, T, t) == j,
+//  	actuallyReturnsSubtype(T, NONETYPE(), j).
+
+  actuallyReturns(0, [IfElse(e, Block(stmts), else)  | t]) = #(max(i, j)) :-
+  	actuallyReturnsBranch(stmts, else) == i,
+  	actuallyReturns(0, t) == j.
+  	
+  actuallyReturnsBranch(_, Elif(_, _)) = 0.
+  
+  actuallyReturnsBranch(b1, Else(Block(b2))) = #(min(i, j)) :-
+  	actuallyReturns(0, b1) == i,
+  	actuallyReturns(0, b2) == j.
+  	
+  actuallyReturnsBranch(b1, ElifElse(_, Block(b2), b3)) = #(min(i, j)) :-
+  	actuallyReturns(0, b1) == i,
+  	actuallyReturnsBranch(b2, b3) == j.

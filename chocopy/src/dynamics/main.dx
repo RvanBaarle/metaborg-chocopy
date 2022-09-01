@@ -1,0 +1,49 @@
+module dynamics/main
+
+imports
+  signatures/chocopy-sig
+  
+  dynamics/stdlib
+  dynamics/native
+  
+  dynamics/defs
+  dynamics/exps
+  dynamics/stmts
+  
+// semantic types, correspond to the statix types
+signature
+  sorts TYPE Scope
+  constructors
+    CLASS       : Scope * ID -> TYPE
+    INT         : TYPE
+    BOOL        : TYPE
+    LIST        : TYPE -> TYPE
+    OBJECT      : TYPE
+    FUN         : TYPE * List(TYPE) -> TYPE
+    NONETYPE    : TYPE
+    EMPTY       : TYPE      
+    ITERABLE    : TYPE
+    INTBOOLSTR  : TYPE
+  constructors
+    STRING      : string -> STRING
+  
+constraint-analyzer
+  property box :: 'string
+  property type :: 'TYPE
+
+rules
+  $return :: @cval
+  $raise :: @cval
+
+  compileProgram :: 'Program -> Pluggable
+  
+  compileProgram(Program(defs, stmts)) = {
+    builtins()
+    classConstructors()
+    
+    with $raise = var('"$err_unhandledexn"), $return = var('"$dummy_toplevelreturn") do {
+      compileNonFunDefs(defs)
+      fix { compileFunDefs(defs) }
+      compileStmts(stmts)
+    }
+  }

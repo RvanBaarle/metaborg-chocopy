@@ -1,0 +1,85 @@
+module Statement
+
+imports Common
+imports Expression
+imports ID
+imports Type
+	
+context-free sorts Statement Pass AssignTarget Return
+context-free syntax
+  Statement.Exp 	   = Exp 					 {layout(0.first.line == 0.last.line)}
+  Statement.Assign 	   = <<AssignTarget+> <Exp>> {left,layout(0.first.line == 1.last.line)}
+  AssignTarget.Target  = Target "="
+  Statement.ReturnNone = <return> 				 {layout(0.first.line == 0.last.line)}
+  Statement.Return	   = <return <Exp>> 		 {layout(0.first.line == 1.last.line)}		
+  Statement.PassStmt = <pass> 					 {layout(0.first.line == 0.last.line)}
+	
+  Pass.Pass = <pass> {layout(0.first.line == 0.last.line)}
+	
+template options
+	keyword -/- [a-zA-Z0-9\_]
+	
+context-free sorts ElifElse Block TryExcept TryFinally
+context-free syntax
+
+	Statement.If = <
+		if <Exp>:
+			<body:Block>
+	> {layout(0.first.line == 2.last.line && 3.first.col > 0.first.col && 3.first.line > 0.first.line)}
+	
+	Statement.IfElse = <
+		if <Exp>:
+			<body:Block>
+		<else:ElifElse>
+	> {layout(0.first.line == 2.last.line && 3.first.col > 0.first.col && 3.first.line > 0.first.line && 0.first.col == 4.first.col)}
+	
+	ElifElse.ElifElse = <
+		elif <Exp>:
+			<body:Block>
+		<else:ElifElse>
+	> {layout(0.first.line == 2.last.line && 3.first.line > 0.first.line && 3.first.col > 0.first.col && 0.first.col == 4.first.col)}
+	
+	ElifElse.Elif = <
+		elif <Exp>:
+			<body:Block>
+	> {layout(0.first.line == 2.first.line && 3.first.line > 0.first.line && 3.first.col > 0.first.col)}
+	
+	ElifElse.Else = <
+		else :
+			<body:Block>
+	> {layout (0.first.line == 1.last.line && 2.first.line > 0.first.line && 2.first.col > 0.first.col)}
+	
+	Statement.While = <
+	while <Exp>: 
+		<body:Block>
+	>	{layout(0.first.line == 2.last.line && 3.first.line > 0.first.line && 3.first.col > 0.first.col) }
+	
+	Statement.For = <
+	for <ID> in <Exp>:
+		<body:Block>			
+	> { layout(0.first.line == 4.last.line && 5.first.line > 0.first.line && 5.first.col > 0.first.col) }
+	
+	Statement.Raise = <raise <Exp>> {layout(single-line 1 2)}
+	
+	Statement.Try = <
+	try:
+	  <body:Block>
+	<excepts:TryExcept*>
+	<finally:TryFinally>
+	> {layout(align 0 excepts && align excepts finally && align-list excepts && newline-indent 0 body)}
+	
+	TryExcept.TryExcept = <
+    except <ty:Type> as <id:ID>:
+      <body:Block>
+    > {layout(single-line 0 ty 2 id && newline-indent 0 body)}
+	
+	TryFinally.NoTryFinally =
+	TryFinally.TryFinally = <
+	finally:
+	  <body:Block>
+	> {layout(newline-indent 0 body)}
+	
+	Block.Block = stmts:Statement+ {layout(align-list stmts)}
+	
+template options
+	keyword 	-/- [a-zA-Z0-9\_]

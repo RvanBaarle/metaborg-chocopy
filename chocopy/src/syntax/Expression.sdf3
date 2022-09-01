@@ -1,0 +1,92 @@
+module Expression
+
+imports
+
+	ID
+	Type
+
+context-free sorts
+
+	Exp
+	Member
+	Index
+	Parameters
+	Target
+	Var
+	
+context-free syntax
+
+	// Todo investigate brackets ar
+	
+	Exp 				= <(<Exp>)> {bracket}
+
+	Exp.Not 		= <not <Exp>> 				
+	Exp.And 		= <<Exp> and <Exp>> 			{left}
+	Exp.Or			= <<Exp> or <Exp>> 				{left}
+	Exp.Ternary		= <<Exp> if <Exp> else <Exp>>	{right}
+				
+	Exp			    = Var
+	Exp			    = Literal
+	Exp.List	    = < [<{Exp ","}*>] > 
+	Exp			    = Member
+	Exp	 		    = Index
+	Exp.Call		= <<Exp>(<Parameters>)>	
+	Exp.Negative 	= "-" Exp										
+
+	
+	Exp.Add        = Exp "+"  Exp        	{left}
+	Exp.Sub        = Exp "-"  Exp        	{left}
+	Exp.Mul        = Exp "*"  Exp        	{left}
+	Exp.IntDiv     = Exp "//" Exp        	{left}
+	Exp.Mod        = Exp "%"  Exp        	{left}
+	Exp.Eq    	   = Exp "==" Exp        	{non-assoc}
+	Exp.Neq        = Exp "!=" Exp        	{non-assoc}
+	Exp.Lt    	   = Exp "<"  Exp        	{non-assoc}
+	Exp.Gt     	   = Exp ">"  Exp        	{non-assoc}
+	Exp.Geq        = Exp ">=" Exp        	{non-assoc}
+	Exp.Leq        = Exp "<=" Exp        	{non-assoc}
+	Exp.Is     	   = <<Exp> is <Exp>>       {non-assoc}
+	
+	Member.Member	= <<Exp>.<ID>>			{left}
+	Index.Index 	= <<Exp>[<Exp>]>		{left}
+	Parameters		= {Exp ","}*
+	
+	Target 			= Var
+	Target			= Member
+	Target			= Index
+	
+	Var.Var 		= ID
+	
+template options
+	keyword 	-/- [a-zA-Z0-9\_]
+
+	
+context-free priorities
+
+	// https://docs.python.org/3/reference/expressions.html#operator-precedence
+	// https://chocopy.org/chocopy_language_reference.pdf
+	//{Exp.Parentheses} > 
+	{Exp.List} > 
+	{left: Index.Index Exp.Call Member.Member} > 
+	{Exp.Negative} > 
+	{left: Exp.Mul Exp.IntDiv Exp.Mod} > 
+	{left: Exp.Add Exp.Sub} > 
+	{non-assoc: Exp.Eq Exp.Neq Exp.Lt Exp.Gt Exp.Geq Exp.Leq Exp.Is} > 
+	{Exp.Not} > {left: Exp.And} > {left: Exp.Or} > {right: Exp.Ternary},
+	
+	Exp.Add    <2> .> Exp.Not,
+	Exp.Sub    <2> .> Exp.Not,
+	Exp.Mul    <2> .> Exp.Not, 
+	Exp.IntDiv <2> .> Exp.Not, 
+	Exp.Mod    <2> .> Exp.Not, 
+	Exp.Eq     <2> .> Exp.Not, 
+	Exp.Neq    <2> .> Exp.Not, 
+	Exp.Lt     <2> .> Exp.Not, 
+	Exp.Gt     <2> .> Exp.Not, 
+	Exp.Geq    <2> .> Exp.Not, 
+	Exp.Leq    <2> .> Exp.Not, 
+	Exp.Is     <2> .> Exp.Not 
+	 
+	
+	
+	

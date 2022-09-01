@@ -1,0 +1,173 @@
+module statics/top-level
+
+imports
+	signatures/Type-sig
+	signatures/Program-sig
+	signatures/Common-sig
+	signatures/Definition-sig
+	signatures/Expression-sig
+	signatures/Statement-sig
+	signatures/chocopy-sig
+	signatures/ID-sig
+	
+	statics/expressions
+	statics/decls
+	statics/types
+	statics/stmts
+	statics/statics
+
+rules // interface
+  
+  defOk				: scope  * Definition * int -> int
+  defsOk 			: scope * list(Definition) * int -> int
+  
+  classOk 			: scope * ClassDef * int
+  funcOk			: scope * scope * scope * FuncDef
+  varOk				: scope * VarDef -> TYPE
+  
+  parentOk 			: scope * ID * int
+  bodyOk 			: scope * scope * ClassBody * ID
+  classBodyMemberOk 	: scope * scope * ClassBodyMember * ID
+  classBodyMembersOk  maps classBodyMemberOk(*, *, list(*), *)
+  
+  funcBodyMemberOk 	: scope * scope * scope * scope * FuncBodyMember 
+  funcBodyMembersOk 	  maps funcBodyMemberOk(*, *, *, *, list(*))   
+  argOk 			: scope * scope * scope * TypedVar -> TYPE
+  argsOk 			  maps argOk(*, *, *, list(*)) = list(*)
+  retOk 			: scope * RetType -> TYPE
+  initOk			: ID * list(TYPE)
+  
+  noneReturnOk      : TYPE * int
+
+rules // programOk
+
+  programOk(Program(defs, stmts)) :- {s}
+  	new s,
+  	defsOk(s, defs, 0) == _,
+  	stmtsOk(s, 0, stmts, NONETYPE()),
+  	
+  	declClassFun(s, "int", FUN(INT(), [])),
+  	declClassFun(s, "bool", FUN(BOOL(), [])),
+  	declClassFun(s, "str", FUN(STRING(), [])),
+  	declClassFun(s, "object", FUN(OBJECT(), [])) ,
+  	declClassFun(s, "len", FUN(INT(), [OBJECT()])),
+  	declClassFun(s, "print", FUN(NONETYPE(), [OBJECT()])),
+  	declClassFun(s, "input", FUN(STRING(), [])).
+  	
+rules // definitions
+
+  defOk(s, VarDef2Definition(v), i) = i :- varOk(s, v) == _.
+  
+  defOk(s, FuncDef2Definition(f), i ) = i :- {s'}
+  	new s', s' -P-> s,
+  	funcOk(s, s, s', f).
+  	
+  defOk(s, ClassDef2Definition(c), i) = j :- 
+  	classOk(s, c, i),
+  	j == #(i + 1).
+  	
+  defsOk(s, [], i) = i.
+  defsOk(s, [d], i) = j :- defOk(s, d, i) == j.
+  defsOk(s, [d | t], i) = j :- {temp} 
+  	defOk(s, d, i) == temp,
+  	defsOk(s, t, temp) == j.
+  
+rules // classes
+
+  classOk(s, ClassDef(id, parent, body), i) :- {s'}
+  	new s', s'-P-> s,
+  	declClass(s, s', id, i),
+  	declClassFun(s, id, FUN(CLASS(s', id), [])),
+  	parentOk(s', parent, i),
+  	bodyOk(s, s', body, id).
+  	  	
+
+  parentOk(_, "object", _).
+  
+  parentOk(s, id, i) :- {is i'}
+  	resolveClass(s, id) == (is, i'),
+  	s -I-> is,
+ 	i' #< i | error $[Class [id] is not yet defined],
+  	query () filter I* and { x :- x == s } min $ < I  in is |-> [] 
+  	    | error $[A class cannot extend itself or its subclass].
+  	
+  bodyOk(_, _, Pass2ClassBody(Pass()), _).
+  
+  bodyOk(gs, cs, ClassBodyMembers2ClassBody(l), cn) :- 
+    classBodyMembersOk(gs, cs, l, cn).
+  
+  classBodyMemberOk(gs, cs, VarDef2ClassBodyMember(VarDef(TypedVar(id, type), literal)), _) :- {T LT} @id.type := T,
+  	typeOk(cs, type) == T,
+  	literalOk(literal) == LT,
+  	isSubtype(T, LT),
+  	declMember(cs, id, T).
+  	
+  classBodyMemberOk(gs, cs, FuncDef2ClassBodyMember(FuncDef(id, args, ret, FuncBody(defs, stmts))), cn) :- {RT ATs s ss t tail x} @id.type := FUN(RT, ATs),
+  	new s, s -P-> cs,
+  	new ss, ss -P-> s,
+  	retOk(cs, ret) == RT,
+  	argsOk(cs, s, ss, args) == ATs@[t | tail],
+  	initOk(id, tail),
+  	declMember(cs, id, FUN(RT, ATs)),
+  	funcBodyMembersOk(gs, cs, s, ss, defs),
+  	stmtsOk(ss, 1, stmts, RT),
+  	try { t == CLASS(cs, cn) } | error $[First argument of function [id] needs to be of the enclosing class],
+  	actuallyReturns(0, stmts) == x,
+  	noneReturnOk(RT, x) | error $[Every path in function [id] needs a return statement].
+  	
+  initOk("__init__", [H | T]) :- 
+  	false | error $[Constructor only takes 1 parameter: self].
+  initOk(_, _).
+  	
+  noneReturnOk(T, 1).
+  
+  noneReturnOk(T, 0) :- isSubtype(T, NONETYPE()).
+  	
+rules // functions  	
+
+  funcOk(gs, us, s, FuncDef(id, args, ret, FuncBody(defs, stmts))) :- {RT ATs ss x} @id.type := FUN(RT, ATs),
+  	new ss, ss -P-> s,
+  	retOk(us, ret) == RT,
+  	argsOk(us, s, ss, args) == ATs,
+  	declFun(us, id, FUN(RT, ATs)),
+  	funcBodyMembersOk(gs, us, s, ss, defs),
+  	stmtsOk(ss, 1, stmts, RT),
+  	actuallyReturns(0, stmts) == x,
+  	noneReturnOk(RT, x) | error $[Every path in function [id] needs a return statement].
+  	
+
+  funcBodyMemberOk(gs, us, s, ss, Global(id)) :- {T s' o}
+  	resolveVar(gs, id) == (T, s', o),
+  	notFunctionOrClass(T) | error $[Not a variable [id]],
+  	declVar(ss, id, T, o).
+  	
+  funcBodyMemberOk(gs, us, s, ss, Nonlocal(id)) :- {T s' o}
+  	resolveVar(us, id) == (T, s', o),
+  	notFunctionOrClass(T) | error $[Not a variable [id]],
+  	try { gs != s' } | error $[Not a nonlocal variable [id]],
+  	declVar(ss, id, T, o).
+  
+  funcBodyMemberOk(gs, us, s, ss, VarDef2FuncBodyMember(v@VarDef(TypedVar(id, type), literal))) :- {T}
+  	varOk(s, v) == T, 
+  	declVar(ss, id, T, id).
+  	
+  funcBodyMemberOk(gs, us, s, ss, FuncDef2FuncBodyMember(f)) :- {s'}
+  	new s', s' -P-> s,
+  	funcOk(gs, s, s', f).
+  	
+  
+  argOk(us, s, ss, TypedVar(id, t)) = T :- @id.type := T,
+  	typeOk(us, t) == T,
+  	declVar(s, id, T, id),
+  	declVar(ss, id, T, id).
+  
+  retOk(s, ReturnsNone()) = NONETYPE().
+  retOk(s, Returns(t)) = T :- typeOk(s, t) == T.
+  
+  varOk(s, VarDef(v@TypedVar(id, type), literal)) = T :- {LT} @id.type += T,
+  	typeOk(s, type) == T,
+  	literalOk(literal) == LT,
+  	isSubtype(T, LT),
+  	boxIfNeeded(astId(literal), LT, T),
+  	declVar(s, id, T, id).
+  	  	

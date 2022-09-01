@@ -1,0 +1,54 @@
+module ID
+
+lexical sorts ID
+
+lexical syntax
+
+	// Identifiers are defined as a contiguous sequence of characters
+	// containing the uppercase and lowercase letters A through Z, 
+	// the underscore and, except for the first character, 
+	// the digits 0 through 9.
+
+	ID = [a-zA-Z\_] [a-zA-Z0-9\_]*
+	
+	// The following strings are not recognized as identifiers, 
+	// and are instead recognized as distinct keyword tokens:
+
+	ID = "False"		{reject}
+	ID = "None"		{reject}
+	ID = "True"		{reject}
+	ID = "and"		{reject}
+	ID = "as"		{reject}
+	ID = "assert"	{reject}
+	ID = "async"		{reject}
+	ID = "await"		{reject}
+	ID = "break"		{reject}
+	ID = "class"		{reject}
+	ID = "continue"	{reject}
+	ID = "def"		{reject}
+	ID = "del"		{reject}
+	ID = "elif"		{reject}
+	ID = "else"		{reject}
+	ID = "except"	{reject}
+	ID = "finally"	{reject}
+	ID = "for"		{reject}
+	ID = "from"		{reject}
+	ID = "global"	{reject}
+	ID = "if"		{reject}
+	ID = "import"	{reject}
+	ID = "in"		{reject}
+	ID = "is"		{reject}
+	ID = "lambda"	{reject}
+	ID = "nonlocal"	{reject}
+	ID = "not"		{reject}
+	ID = "or"		{reject}
+	ID = "pass"		{reject}
+	ID = "raise"		{reject}
+	ID = "return"	{reject}
+	ID = "try"		{reject}
+	ID = "while"		{reject}
+	ID = "with"		{reject}
+	ID = "yield"		{reject}	
+
+lexical restrictions
+    ID -/- [a-zA-Z0-9\_]

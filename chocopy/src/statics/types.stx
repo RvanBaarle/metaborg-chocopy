@@ -1,0 +1,140 @@
+module statics/types
+
+imports signatures/Type-sig	
+imports signatures/Expression-sig
+imports statics/decls
+
+signature
+  sorts TYPE 
+  constructors
+	CLASS		: scope * ID -> TYPE
+	INT			: TYPE
+	BOOL		: TYPE
+	LIST		: TYPE -> TYPE
+	STRING		: TYPE
+	OBJECT		: TYPE
+	FUN			: TYPE * list(TYPE) -> TYPE
+	NONETYPE	: TYPE
+	EMPTY		: TYPE		
+	ITERABLE	: TYPE
+	INTBOOLSTR	: TYPE
+		
+rules // interface
+
+  typeOk				: scope * Type -> TYPE
+  typesOk				  maps typeOk(*, list(*)) = list(*)
+  isSubtype				: TYPE * TYPE
+  areSubtypes 			: list(TYPE) * list(TYPE)
+  areSubtypesBoxing     : list(Exp) * list(TYPE) * list(TYPE)
+  leastUpperBound 		: TYPE * TYPE -> TYPE
+  leastUpperBounds 		: list(TYPE) -> TYPE
+  classSubtype 			: scope * scope -> int
+  typeList 				: list((path * (scope))) -> int 
+  classLUB 				: int * int * TYPE * TYPE -> TYPE
+  notFunctionOrClass 	: TYPE
+  listOrString 			: TYPE -> TYPE
+  boxIfNeeded           : astId * TYPE * TYPE
+  boxExpIfNeeded        : Exp * TYPE * TYPE
+  boxExpsIfNeeded       : list(Exp) * list(TYPE) * TYPE
+  
+rules
+
+  notFunctionOrClass(FUN(_, _)) :- false.
+  notFunctionOrClass(_).
+
+  typeOk(s, x@Type("int"))    = INT()         :- @x.type := INT().
+  typeOk(s, x@Type("bool"))   = BOOL()        :- @x.type := BOOL().
+  typeOk(s, x@Type("str")) 	  = STRING()      :- @x.type := STRING().
+  typeOk(s, x@Type("object")) = OBJECT()      :- @x.type := OBJECT().
+  typeOk(s, x@ListType(t)) 	  = LIST(T)       :- @x.type := LIST(T), typeOk(s, t) == T.
+  typeOk(s, x@Type(id)) 		  = CLASS(s', id) :- @x.type := CLASS(s', id), resolveClass(s, id) == (s', _).
+  typeOk(s, x@TypeS(IdString(id))) = T :-
+    typeOk(s, Type(id)) == T,
+    @x.type := T.
+  
+  isSubtype(DT, AT) :- leastUpperBound(DT, AT) == DT.  
+  isSubtype(ITERABLE(), LIST(_)).
+  isSubtype(ITERABLE(), STRING()).
+  isSubtype(ITERABLE(), EMPTY()).
+  isSubtype(LIST(T),    LIST(NONETYPE())) :- isSubtype(T, NONETYPE()).
+  
+  isSubtype(FUN(_, _), _) :- false.
+  isSubtype(_, FUN(_, _)) :- false.
+  
+  areSubtypes([], []).
+  areSubtypes([h1 | t1], [h2 | t2]) :-
+  	isSubtype(h1, h2),
+  	areSubtypes(t1, t2).
+  	
+  areSubtypesBoxing([], [], []).
+  areSubtypesBoxing([e | t], [h1 | t1], [h2 | t2]) :-
+    isSubtype(h1, h2),
+    boxExpIfNeeded(e, h2, h1),
+    areSubtypesBoxing(t, t1, t2).
+
+  classSubtype(p, c) = i :- {l}
+  	query () filter I I* and { s :- s == p } min $ < I  in c |-> l,
+  	i == typeList(l).	
+  		
+  typeList([]) = 0.
+  typeList(_)  = 1.
+  
+  leastUpperBound(T, T) = T.
+  leastUpperBound(_, _) = OBJECT().
+  leastUpperBound(CLASS(s, id), CLASS(s, id)) = CLASS(s, id).
+  
+  leastUpperBound(P@CLASS(p, id1), C@CLASS(c, id2)) = T :- {i j}
+  	classSubtype(p, c) == i,
+  	classSubtype(c, p) == j,
+  	classLUB(i, j, P, C) == T.
+  	
+  classLUB(0, 0, _, _) = OBJECT().
+  classLUB(1, 0, P, _) = P.
+  classLUB(0, 1, _, C) = C.
+
+  leastUpperBound(CLASS(c, id), NONETYPE())   = CLASS(c, id).
+  leastUpperBound(EMPTY(), 		NONETYPE())   = EMPTY().
+  leastUpperBound(LIST(t), 		NONETYPE())   = LIST(t).
+  leastUpperBound(NONETYPE(), 	CLASS(c, id)) = CLASS(c, id).
+  leastUpperBound(NONETYPE(), 	EMPTY())      = EMPTY().
+  leastUpperBound(NONETYPE(), 	LIST(t))      = LIST(t).
+
+  leastUpperBound(LIST(t), EMPTY()) = LIST(t).
+  leastUpperBound(EMPTY(), LIST(t)) = LIST(t).
+  
+  leastUpperBounds([T1, T2]) = T :- 
+  	leastUpperBound(T1, T2) == T.
+  	
+  leastUpperBounds([T1, T2 | t]) = T :- {Temp}
+  	leastUpperBound(T1, T2) == Temp,
+  	leastUpperBounds([Temp | t]) == T.
+  	
+  listOrString(LIST(T))  = T.
+  listOrString(STRING()) = STRING().
+  
+  boxIfNeeded(x, INT(), OBJECT()) :- @x.box += "int".
+  boxIfNeeded(x, BOOL(), OBJECT()) :- @x.box += "bool".
+  boxIfNeeded(x, STRING(), OBJECT()) :- @x.box += "str".
+  boxIfNeeded(x, _, _) :- @x.box += "other".
+  
+  // need to special case injections, since their annotations disappear after implication
+  // see https://github.com/metaborg/nabl/issues/98 for background/discussion
+  boxExpIfNeeded(Literal2Exp(x), INT(), OBJECT()) :- @x.box += "int".
+  boxExpIfNeeded(Literal2Exp(x), BOOL(), OBJECT()) :- @x.box += "bool".
+  boxExpIfNeeded(Literal2Exp(x), STRING(), OBJECT()) :- @x.box += "str".
+  boxExpIfNeeded(Index2Exp(x), INT(), OBJECT()) :- @x.box += "int".
+  boxExpIfNeeded(Index2Exp(x), BOOL(), OBJECT()) :- @x.box += "bool".
+  boxExpIfNeeded(Index2Exp(x), STRING(), OBJECT()) :- @x.box += "str".
+  boxExpIfNeeded(Var2Exp(x), INT(), OBJECT()) :- @x.box += "int".
+  boxExpIfNeeded(Var2Exp(x), BOOL(), OBJECT()) :- @x.box += "bool".
+  boxExpIfNeeded(Var2Exp(x), STRING(), OBJECT()) :- @x.box += "str".
+  boxExpIfNeeded(Member2Exp(x), INT(), OBJECT()) :- @x.box += "int".
+  boxExpIfNeeded(Member2Exp(x), BOOL(), OBJECT()) :- @x.box += "bool".
+  boxExpIfNeeded(Member2Exp(x), STRING(), OBJECT()) :- @x.box += "str".
+  boxExpIfNeeded(x, INT(), OBJECT()) :- @x.box += "int".
+  boxExpIfNeeded(x, BOOL(), OBJECT()) :- @x.box += "bool".
+  boxExpIfNeeded(x, STRING(), OBJECT()) :- @x.box += "str".
+  boxExpIfNeeded(x, _, _) :- @x.box += "other".
+  
+  boxExpsIfNeeded([], [], _).
+  boxExpsIfNeeded([a|tl], [T|ttl], ET) :- boxExpIfNeeded(a, T, ET), boxExpsIfNeeded(tl, ttl, ET).

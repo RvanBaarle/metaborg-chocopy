@@ -1,0 +1,164 @@
+module dynamics/defs
+
+imports
+  dynamics/stdlib
+  dynamics/native
+  
+  dynamics/exps
+  dynamics/stmts
+  
+  signatures/Definition-sig
+  
+rules
+  compileNonFunDef :: 'Definition -> Pluggable
+  
+  // for every classdef we compile the following:
+  // $initialize_<name>: takes a self ptr, vtbl ptr and initializes fields
+  // <name>: allocates, calls $initialize_<name>, calls constructor
+  compileFunDef(ClassDef(name, super, body)) = {
+    initializeName <- var('"$initialize_" + name)
+    self <- fresh-var(self)
+    cont <- fresh-var(cont)
+    vtable <- fresh-var(vtable)
+    throw <- fresh-var(throw)
+    
+    [fun initializeName([self, vtable, cont]) = {
+        {
+          var('"$initialize_" + super)@([self, vtable, after])
+        } label after/0:
+        
+        compileClassInitialize(self, vtable, body)
+        
+        cont@([])
+      },
+      
+      fun var('"$fn_" + name)([cont, throw]) = {
+        vtbl <- #record-new([])
+        zelf <- #record-new([str('"$vtable"), vtbl, str('"$type"), str(name)])
+        
+        initializeName@([zelf, vtbl, after]) label after/0:
+        
+        init <- #record-read(vtbl, str('"__init__"))
+        init@([zelf, after, throw]) label after/1: // need this to be /1 for arity to be correct
+        
+        cont@([zelf])
+      }
+    ]
+  }
+  
+  compileClassInitialize :: @cval * @cval * 'ClassBody -> Pluggable
+  compileClassInitialize(_, _, Pass()) = hole
+  compileClassInitialize(this, vtable, members@[_|_]) = compileClassMembers(this, vtable, members)
+  
+  compileClassMembers :: @cval * @cval * List('ClassBodyMember) -> Pluggable
+  compileClassMembers(_, _, []) = hole
+  compileClassMembers(this, vtable, [VarDef(TypedVar(name, _), lit)|rest]) = {
+    lv <- compileLiteral(lit)
+    #record-write(this, str(name), lv)
+  
+    compileClassMembers(this, vtable, rest)
+  }
+  compileClassMembers(this, vtable, [FuncDef(n, args, _, body)|rest]) = {
+    return <- fresh-var(return)
+    throw <- fresh-var(throw)
+    name <- fresh-var(memberfn)
+    
+    // todo: can we eliminate duplication here?
+    fix {
+      fun name(idsToVars(args) ++ [return, throw]) = {
+        wrapIdsInRefs(args)
+        with $return = return, $raise = throw do
+          compileFuncBody(body)
+        return@([none()])
+      }
+    }
+    
+    #record-write(vtable, str(n), name)
+      
+    compileClassMembers(this, vtable, rest)
+  }
+  
+  compileNonFunDef(VarDef(TypedVar(name, _), val)) = {
+    v <- compileLiteralBoxing(val)
+    ref <- #ref-new(v)
+    let var(name) = ref in hole
+  }
+  
+  compileNonFunDef(FuncDef(_, _, _, _)) = hole
+  compileNonFunDef(ClassDef(_, _, _)) = hole
+  
+  wrapIdsInRefs :: List('TypedVar) -> Pluggable
+  wrapIdsInRefs([]) = hole
+  wrapIdsInRefs([TypedVar(h, _)|t]) = {
+    wrapped <- #ref-new(var(h))
+    let var(h) = wrapped in wrapIdsInRefs(t)
+  }
+  
+  idsToVars :: List('TypedVar) -> List(@cval)
+  idsToVars([]) = []
+  idsToVars([TypedVar(a, _)|t]) = [var(a)|idsToVars(t)]
+  
+  compileFuncBody :: 'FuncBody -> Pluggable
+  compileFuncBody(FuncBody(defs, stmts)) = {
+    compileNonFunFuncBodyMembers(defs)
+    fix { compileFunFuncBodyMembers(defs) }
+    compileStmts(stmts)
+  }
+  
+  // this grammar man..
+  compileNonFunFuncBodyMember :: 'FuncBodyMember -> Pluggable
+  compileNonFunFuncBodyMember(Global(_)) = hole
+  compileNonFunFuncBodyMember(Nonlocal(_)) = hole
+  compileNonFunFuncBodyMember(a@VarDef(_, _)) = compileNonFunDef(a)
+  compileNonFunFuncBodyMember(a@FuncDef(_, _, _, _)) = hole
+  
+rules
+  compileFunDef :: 'Definition -> List(@cfun)
+  compileFunDef(FuncDef(n, args, _, body)) = {
+    return <- fresh-var(return)
+    throw <- fresh-var(throw)
+    name <- var('"$fn_" + n)
+    
+    [fun name(idsToVars(args) ++ [return, throw]) = {
+      wrapIdsInRefs(args)
+      with $return = return, $raise = throw do
+        compileFuncBody(body)
+      return@([none()])
+    }]
+  }
+  compileFunDef(_) = []
+  
+  compileFuncBodyMemberFunDef :: 'FuncBodyMember -> List(@cfun)
+  compileFuncBodyMemberFunDef(d@FuncDef(_, _, _, _)) = compileFunDef(d)
+  compileFuncBodyMemberFunDef(_) = []
+  
+rules
+  compileNonFunDefs :: List('Definition) -> Pluggable
+  compileNonFunDefs([]) = hole
+  compileNonFunDefs([h|tl]) = {
+    compileNonFunDef(h)
+    compileNonFunDefs(tl)
+  }
+  
+  compileFunDefs :: List('Definition) -> List(@cfun)
+  compileFunDefs([]) = []
+  compileFunDefs([h|t]) = {
+    hh <- compileFunDef(h)
+    tt <- compileFunDefs(t)
+    hh ++ tt
+  }
+  
+  compileNonFunFuncBodyMembers :: List('FuncBodyMember) -> Pluggable
+  compileNonFunFuncBodyMembers([]) = hole
+  compileNonFunFuncBodyMembers([h|tl]) = {
+    compileNonFunFuncBodyMember(h)
+    compileNonFunFuncBodyMembers(tl)
+  }
+  
+  compileFunFuncBodyMembers :: List('FuncBodyMember) -> List(@cfun)
+  compileFunFuncBodyMembers([]) = []
+  compileFunFuncBodyMembers([h|t]) = {
+    hh <- compileFuncBodyMemberFunDef(h)
+    tt <- compileFunFuncBodyMembers(t)
+    hh ++ tt
+  }

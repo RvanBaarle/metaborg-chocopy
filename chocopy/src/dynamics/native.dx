@@ -1,0 +1,147 @@
+module dynamics/native
+
+imports
+  dynamics/stdlib
+
+rules
+  builtins :: () -> Pluggable
+  builtins() = @
+  #record-new("$type", "None") => $NONE;
+  #array-new() => $emptylistcontents;
+  #record-new("$type", "List", "value", $emptylistcontents) => $emptylist;
+  fix {
+    fun $err_oob() =
+      #print("Index out of bounds") => tmp0;
+      #print("Exited with error code 3") => tmp1;
+      #exit()
+    fun $err_div0() =
+      #print("Division by zero") => tmp0;
+      #print("Exited with error code 2") => tmp1;
+      #exit()
+    fun $err_invalidarg() =
+      #print("Invalid argument") => tmp0;
+      #print("Exited with error code 1") => tmp1;
+      #exit()
+    fun $err_unhandledexn(a) =
+      #print("Unhandled exception") => tmp0;
+      #exit()
+  
+    fun $fn_print(v, c, _) =
+      #record-read(v, "$type") => type;
+      if #str-eq(type, "None") then
+        $err_invalidarg()
+      else
+        if #str-eq(type, "int") then
+          #record-read(v, "value") => intv;
+          #print(intv) => tmp0;
+          c($NONE)
+        else
+          if #str-eq(type, "str") then
+            #record-read(v, "value") => strv;
+            #print(strv) => tmp0;
+            c($NONE)
+          else
+            if #str-eq(type, "bool") then
+              #record-read(v, "value") => boolv;
+              if #int-eq(boolv, 1) then
+                #print("True") => tmp0;
+                c($NONE)
+              else
+                #print("False") => tmp0;
+                c($NONE)
+            else
+              $err_invalidarg()
+    fun $mod(a, b, after) =
+      #int-div(a, b) => full_parts;
+      #int-mul(full_parts, b) => full;
+      #int-sub(a, full) => mod;
+      after(mod)
+    fun $assert_not_none(val, after) =
+      #record-read(val, "$type") => ty;
+      if #str-eq(ty, "None") then
+        #print("Operation on None") => tmp0;
+        #print("Exited with error code 4") => tmp1;
+        #exit()
+      else
+        after()
+    fun $assert_within_bounds(len, idx, after) =
+      if #int-lt(idx, 0) then
+        $err_oob()
+      else
+        if #int-geq(idx, len) then
+          $err_oob()
+        else
+          after()
+    fun $fn_len(val, after, _) =
+      #record-read(val, "$type") => ty;
+      if #str-eq(ty, "List") then
+        #record-read(val, "value") => arval;
+        #array-length(arval) => len;
+        after(len)
+      else
+        if #str-eq(ty, "str") then
+          #record-read(val, "value") => strval;
+          #str-length(strval) => len;
+          after(len)
+        else
+          $err_invalidarg()
+    fun $object__init__(self, cont, _) = cont(self)
+    fun $initialize_object(self, vtable, cont) = 
+      #record-write(vtable, "__init__", $object__init__) => tmp0;
+      cont()
+  } in hole
+  
+  classConstructors :: () -> Pluggable
+  classConstructors() = @fix {
+    fun $fn_int(after, _) = after(0)
+    fun $fn_bool(after, _) = after(0)
+    fun $fn_str(after, _) = after("")
+    fun $fn_object(after, exn) =
+      #record-new( ) => y6;
+      #record-new("$vtable", y6, "$type", "object") => y10;
+      $object__init__(y10, after, exn)
+  } in hole
+  
+  none :: () -> @cval
+  none() = var('"$NONE")
+  
+  assertNotNone :: @cval -> Pluggable
+  assertNotNone(v) = {
+    var('"$assert_not_none")@([v, after])
+  } label after/0:
+  
+  assertArrayWithinBounds :: @cval * @cval -> Pluggable
+  assertArrayWithinBounds(arr, idx) = {
+    len <- #array-length(arr)
+    var('"$assert_within_bounds")@([len, idx, after])
+  } label after/0:
+  
+  assertStringWithinBounds :: @cval * @cval -> Pluggable
+  assertStringWithinBounds(s, idx) = {
+    len <- #str-length(s)
+    var('"$assert_within_bounds")@([len, idx, after])
+  } label after/0:
+  
+  assertDivNotZero :: @cval -> Pluggable
+  assertDivNotZero(v) = {
+    if #int-eq(v, int('0)) then {
+      var('"$err_div0")@([])
+    } else {
+      after@([])
+    }
+  } label after/0:
+  
+  mod :: @cval * @cval -> Pluggable(@cval)
+  mod(a, b) = {
+    var('"$mod")@([a, b, after])
+  } label after/1:
+  
+rules
+  boxInt :: @cval -> Pluggable(@cval)
+  boxInt(v) = #record-new([str('"$type"), str('"int"), str('"value"), v])
+  
+  boxString :: @cval -> Pluggable(@cval)
+  boxString(v) = #record-new([str('"$type"), str('"str"), str('"value"), v])
+  
+  boxBool :: @cval -> Pluggable(@cval)
+  boxBool(v) = #record-new([str('"$type"), str('"bool"), str('"value"), v])

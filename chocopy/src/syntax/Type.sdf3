@@ -1,0 +1,51 @@
+module Type
+
+imports ID
+
+lexical sorts INT StringChar STRINGC
+
+context-free sorts
+	Type
+	TypedVar
+	Literal
+	STRING
+	IDSTRING
+
+context-free syntax
+
+	IDSTRING.IdString = <"<ID>">
+
+	TypedVar.TypedVar = ID ":" Type
+	
+	Type.ListType 	= "[" Type "]"
+	
+	Type.Type  	= ID
+	Type.TypeS 	= IDSTRING
+
+	Literal.NONE 	= <None>
+	Literal.True 	= <True>
+	Literal.False 	= <False>
+	Literal.Int 	= INT
+	Literal.String 	= STRING
+	
+syntax
+    STRING-CF.STRING = '"' STRINGC-LEX '"'
+
+lexical syntax
+	
+	INT = [0]
+	INT = [1-9][0-9]*
+	
+	// STRING = [\"] StringChar* [\"]
+	STRINGC = StringChar*
+	StringChar = [\32-\33]
+	StringChar = [\35-\91]
+	StringChar = [\93-\126]
+	StringChar = '\\"'
+	StringChar = '\\n'
+	StringChar = '\\t'
+	StringChar = '\\\\'
+
+lexical restrictions
+
+	INT -/- [0-9]

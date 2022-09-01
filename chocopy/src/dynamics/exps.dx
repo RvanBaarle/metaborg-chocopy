@@ -1,0 +1,247 @@
+module dynamics/exps
+
+imports
+  dynamics/stdlib
+  dynamics/native
+  
+  dynamics/main
+  
+  signatures/Expression-sig
+  
+rules
+  compileExp :: 'Exp -> Pluggable(@cval)
+  
+  compileExp(Not(x)) = {
+    v <- compileExp(x)
+    if #int-eq(v, int('0)) then {
+      after@([int('1)])
+    } else {
+      after@([int('0)])
+    }
+  } label after/1:
+  compileExp(And(a, b)) = {
+    av <- compileExp(a)
+    if #int-eq(av, int('0)) then {
+      after@([int('0)])
+    } else {
+      bv <- compileExp(b)
+      after@([bv])
+    }
+  } label after/1:
+  compileExp(Or(a, b)) = {
+    av <- compileExp(a)
+    if #int-eq(av, int('1)) then {
+      after@([int('1)])
+    } else {
+      bv <- compileExp(b)
+      after@([bv])
+    }
+  } label after/1:
+  compileExp(Ternary(b, a, c)) = {
+    v <- compileExp(a)
+    if #int-eq(v, int('1)) then {
+      bv <- compileExpBoxing(b)
+      after@([bv])
+    } else {
+      cv <- compileExpBoxing(c)
+      after@([cv])
+    }
+  } label after/1:
+  
+  compileExp(Var(x)) = #ref-fetch(var(x))
+  
+  compileExp(a@NONE()) = compileLiteral(a)
+  compileExp(a@True()) = compileLiteral(a)
+  compileExp(a@False()) = compileLiteral(a)
+  compileExp(a@Int(_)) = compileLiteral(a)
+  compileExp(a@String(_)) = compileLiteral(a)
+  
+  compileExp(List([])) = var('"$emptylist")
+  compileExp(List(a)) = {
+    av <- compileExpsBoxing(a)
+    arr <- #array-new(av)
+    #record-new([str('"$type"), str('"List"), str('"value"), arr])
+  }
+  
+  compileExp(Member(a, b)) = {
+    mem <- compileExp(a)
+    assertNotNone(mem)
+    #record-read(mem, str(b))
+  }
+  
+  compileExp(e@Index(a, _)) = compileIndex(type(a), e)
+  
+  compileIndex :: List('TYPE) * 'Exp -> Pluggable(@cval)
+  compileIndex([LIST(_)|_], Index(a, b)) = { // array index
+    av <- compileExp(a)
+    assertNotNone(av)
+    bv <- compileExp(b)
+    arrayval <- #record-read(av, str('"value"))
+    assertArrayWithinBounds(arrayval, bv)
+    #array-read(arrayval, bv)
+  }
+  compileIndex(_, Index(a, b)) = { // string index
+    av <- compileExp(a)
+    idx <- compileExp(b)
+    assertStringWithinBounds(av, idx)
+    #str-index(av, idx)
+  }
+  
+  compileExp(Call(Var(name), b)) = {
+    bv <- compileExpsBoxing(b)
+    var('"$fn_" + name)@(bv ++ [return, $raise])
+  } label return/1:
+  
+  compileExp(Call(Member(member, prop), args)) = {
+    mem <- compileExp(member)
+    assertNotNone(mem)
+    
+    vtable <- #record-read(mem, str('"$vtable"))
+    fn <- #record-read(vtable, str(prop))
+    
+    argv <- compileExpsBoxing(args)
+    fn@([mem] ++ argv ++ [return, $raise])
+  } label return/1:
+  
+  compileExp(Negative(a)) = {
+    av <- compileExp(a)
+    #int-neg(av)
+  }
+  
+  // addition can either be integer or string
+  // addition so check the type of the expression
+  compileExp(a@Add(_, _)) = compileAdd(type(a), a)
+  compileAdd :: List('TYPE) * 'Exp -> Pluggable(@cval)
+  compileAdd([INT()], Add(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    #int-add(av, bv)
+  }
+  compileAdd([LIST(_)], Add(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    assertNotNone(av)
+    assertNotNone(bv)
+    aiv <- #record-read(av, str('"value"))
+    biv <- #record-read(bv, str('"value"))
+    conc <- #array-concat(aiv, biv)
+    #record-new([str('"$type"), str('"List"), str('"value"), conc])
+  }
+  compileAdd([_], Add(a, b)) = { // must be string if others didn't match
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    #str-add(av, bv)
+  }
+  
+  compileExp(Sub(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    #int-sub(av, bv)
+  }
+  compileExp(Mul(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    #int-mul(av, bv)
+  }
+  compileExp(IntDiv(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    assertDivNotZero(bv)
+    #int-div(av, bv)
+  }
+  compileExp(Mod(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    assertDivNotZero(bv)
+    mod(av, bv)
+  }
+  
+  // todo: term-eq equality might be wonky, but it passes the spec test
+  compileExp(Eq(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    if #term-eq(av, bv) then after@([int('1)])
+    else { after@([int('0)]) }
+  } label after/1:
+  compileExp(Neq(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    if #term-eq(av, bv) then after@([int('0)])
+    else { after@([int('1)]) }
+  } label after/1:
+  
+  compileExp(Lt(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    if #int-lt(av, bv) then after@([int('1)])
+    else { after@([int('0)]) }
+  } label after/1:
+  compileExp(Gt(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    if #int-gt(av, bv) then after@([int('1)])
+    else { after@([int('0)]) }
+  } label after/1:
+  compileExp(Geq(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    if #int-geq(av, bv) then after@([int('1)])
+    else { after@([int('0)]) }
+  } label after/1:
+  compileExp(Leq(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    if #int-leq(av, bv) then after@([int('1)])
+    else { after@([int('0)]) }
+  } label after/1:
+  compileExp(Is(a, b)) = {
+    av <- compileExp(a)
+    bv <- compileExp(b)
+    if #term-eq(av, bv) then after@([int('1)])
+    else { after@([int('0)]) }
+  } label after/1:
+
+rules
+  compileLiteral :: 'Literal -> Pluggable(@cval)
+  compileLiteral(NONE()) = none()
+  compileLiteral(True()) = int('1)
+  compileLiteral(False()) = int('0)
+  compileLiteral(Int(i)) = int(i)
+  compileLiteral(String(STRING(s))) = str(s)
+  
+  compileLiteralBoxing :: 'Literal -> Pluggable(@cval)
+  compileLiteralBoxing(l) = {
+    compiled <- compileLiteral(l)
+    compileExpBoxingHelper(box(l), compiled)
+  }
+  
+rules
+  compileExpBoxing :: 'Exp -> Pluggable(@cval)
+  compileExpBoxing(e) = {
+    compiled <- compileExp(e)
+    compileExpBoxingHelper(box(e), compiled)
+  }
+
+  compileExpBoxingHelper :: List('string) * @cval -> Pluggable(@cval)
+  compileExpBoxingHelper([], e) = e
+  compileExpBoxingHelper([_], e) = e
+  compileExpBoxingHelper(["int"|_], e) = boxInt(e)
+  compileExpBoxingHelper(["str"|_], e) = boxString(e)
+  compileExpBoxingHelper(["bool"|_], e) = boxBool(e)
+  
+rules
+  compileExps :: List('Exp) -> Pluggable(List(@cval))
+  compileExps([]) = []
+  compileExps([h|tl]) = {
+    eh <- compileExp(h)
+    etl <- compileExps(tl)
+    [eh|etl]
+  }
+  
+  compileExpsBoxing :: List('Exp) -> Pluggable(List(@cval))
+  compileExpsBoxing([]) = []
+  compileExpsBoxing([h|tl]) = {
+    eh <- compileExpBoxing(h)
+    etl <- compileExpsBoxing(tl)
+    [eh|etl]
+  }

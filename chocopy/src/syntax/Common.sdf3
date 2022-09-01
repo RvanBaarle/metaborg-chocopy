@@ -1,0 +1,25 @@
+module Common
+
+lexical sorts
+  NewLineEOF
+  EOF
+
+lexical syntax
+
+  LAYOUT     = [\ \t\n\r] 
+  LAYOUT     = "#" ~[\n\r]* NewLineEOF 
+  NewLineEOF = [\n\r] 
+  NewLineEOF = EOF 
+  EOF        = 
+
+lexical restrictions
+  
+  // EOF may not be followed by any char
+  
+  EOF -/- ~[]
+
+context-free restrictions
+
+  // Ensure greedy matching for comments
+  
+  LAYOUT? -/- [\ \t\n\r\#]

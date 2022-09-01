@@ -1,0 +1,17 @@
+module trans/main
+
+imports
+
+  statixruntime
+  statix/api
+  injections/-
+  signatures/-
+
+rules // Analysis
+
+  pre-analyze  = explicate-injections-chocopy-Program
+  post-analyze = implicate-injections-chocopy-Program
+
+  editor-analyze = stx-editor-analyze(pre-analyze, post-analyze|"statics/statics", "programOk")
+  editor-resolve = stx-editor-resolve
+  editor-hover = stx-editor-hover
