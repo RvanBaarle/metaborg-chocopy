@@ -101,7 +101,7 @@ rules
   	boxExpsIfNeeded(l, Ts, T),
   	leastUpperBounds(Ts) == T.
   	
-  expOk(s, Var2Exp(e@Var(id))) = T :- {o} @e.type += T, @id.ref += o,
+  expOk(s, Var2Exp(e@Var(id))) = T :- {o} @e.type += T,
   	resolveVar(s, id) == (T, _, o).
   
   expOk(s, e@Call(Var2Exp(v@Var(id)), Exps2Parameters(params))) = T :- {Ps Ts} @e.type += T, @v.type += FUN(T, Ts),

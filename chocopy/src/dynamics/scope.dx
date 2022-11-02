@@ -1,0 +1,46 @@
+module dynamics/scope
+
+imports
+  signatures/chocopy-sig
+  dynamics/main
+  dynamics/stdlib
+
+signature
+  sorts Path Label
+  constructors
+    PathEmpty : Scope -> Path 
+    PathStep : Path * Label  * Scope -> Path
+    Label : string -> Label
+
+rules
+
+  compileFrameType :: List(('ID * 'TYPE)) * List(@cstructmember) -> Pluggable(@ctype)
+  compileFrameType(elems, extra) = {
+    tvar <- fresh-typevar(frame)
+    typedef {
+      tvar = struct<compileFrameElements(elems) ++ extra>
+    }
+    tvar
+  }
+  
+  compileFrameElement :: ('ID * 'TYPE) -> @cstructmember
+  compileFrameElements :: List(('ID * 'TYPE)) -> List(@cstructmember)
+  compileFrameElements([h|t]) = [compileFrameElement(h)|compileFrameElements(t)]
+  compileFrameElements([]) = []
+  compileFrameElement((x, t)) = x : compileType(t)
+  compileType :: 'TYPE -> @ctype
+  compileType(INT()) = int
+  compileType(STRING()) = string
+  compileType(BOOL()) = int
+  compileType(_) = *
+
+  resolveFrame :: @cval * List('Path) -> Pluggable(@cval)
+  resolveFrame(f, [PathEmpty(_)]) = f
+  resolveFrame(f, [PathStep(p, Label("statics/decls!P"), _)]) = {
+    f_next <- resolveFrame(f, [p])
+    #struct-read(f_next, symbol('"P"))
+  }
+  resolveFrame(f, [PathStep(p, Label("statics/decls!I"), _)]) = {
+    f_next <- resolveFrame(f, [p])
+    #struct-read(f_next, symbol('"I"))
+  }

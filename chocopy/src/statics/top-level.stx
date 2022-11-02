@@ -41,7 +41,7 @@ rules // interface
 
 rules // programOk
 
-  programOk(Program(defs, stmts)) :- {s}
+  programOk(p@Program(defs, stmts)) :- {s}
   	new s,
   	defsOk(s, defs, 0) == _,
   	stmtsOk(s, 0, stmts, NONETYPE()),
@@ -52,7 +52,10 @@ rules // programOk
   	declClassFun(s, "object", FUN(OBJECT(), [])) ,
   	declClassFun(s, "len", FUN(INT(), [OBJECT()])),
   	declClassFun(s, "print", FUN(NONETYPE(), [OBJECT()])),
-  	declClassFun(s, "input", FUN(STRING(), [])).
+  	declClassFun(s, "input", FUN(STRING(), [])),
+  	@p.vars := resolveVars(s),
+  	@p.classes := resolveClasses(s),
+  	@p.funs := resolveFuns(s).
   	
 rules // definitions
 
@@ -74,12 +77,14 @@ rules // definitions
   
 rules // classes
 
-  classOk(s, ClassDef(id, parent, body), i) :- {s'}
+  classOk(s, c@ClassDef(id, parent, body), i) :- {s'}
   	new s', s'-P-> s,
   	declClass(s, s', id, i),
   	declClassFun(s, id, FUN(CLASS(s', id), [])),
   	parentOk(s', parent, i),
-  	bodyOk(s, s', body, id).
+  	bodyOk(s, s', body, id),
+  	@c.members := resolveMembers(s'),
+  	@c.methods := resolveMemberFuns(s').
   	  	
 
   parentOk(_, "object", _).
@@ -102,7 +107,7 @@ rules // classes
   	isSubtype(T, LT),
   	declMember(cs, id, T).
   	
-  classBodyMemberOk(gs, cs, FuncDef2ClassBodyMember(FuncDef(id, args, ret, FuncBody(defs, stmts))), cn) :- {RT ATs s ss t tail x} @id.type := FUN(RT, ATs),
+  classBodyMemberOk(gs, cs, FuncDef2ClassBodyMember(f@FuncDef(id, args, ret, FuncBody(defs, stmts))), cn) :- {RT ATs s ss t tail x} @id.type := FUN(RT, ATs),
   	new s, s -P-> cs,
   	new ss, ss -P-> s,
   	retOk(cs, ret) == RT,
@@ -113,7 +118,9 @@ rules // classes
   	stmtsOk(ss, 1, stmts, RT),
   	try { t == CLASS(cs, cn) } | error $[First argument of function [id] needs to be of the enclosing class],
   	actuallyReturns(0, stmts) == x,
-  	noneReturnOk(RT, x) | error $[Every path in function [id] needs a return statement].
+  	noneReturnOk(RT, x) | error $[Every path in function [id] needs a return statement],
+  	@f.vars := resolveVars(ss),
+  	@f.funs := resolveFuns(ss).
   	
   initOk("__init__", [H | T]) :- 
   	false | error $[Constructor only takes 1 parameter: self].
@@ -125,7 +132,7 @@ rules // classes
   	
 rules // functions  	
 
-  funcOk(gs, us, s, FuncDef(id, args, ret, FuncBody(defs, stmts))) :- {RT ATs ss x} @id.type := FUN(RT, ATs),
+  funcOk(gs, us, s, f@FuncDef(id, args, ret, FuncBody(defs, stmts))) :- {RT ATs ss x} @id.type := FUN(RT, ATs),
   	new ss, ss -P-> s,
   	retOk(us, ret) == RT,
   	argsOk(us, s, ss, args) == ATs,
@@ -133,7 +140,9 @@ rules // functions
   	funcBodyMembersOk(gs, us, s, ss, defs),
   	stmtsOk(ss, 1, stmts, RT),
   	actuallyReturns(0, stmts) == x,
-  	noneReturnOk(RT, x) | error $[Every path in function [id] needs a return statement].
+  	noneReturnOk(RT, x) | error $[Every path in function [id] needs a return statement],
+  	@f.vars := resolveVars(ss),
+  	@f.funs := resolveFuns(ss).
   	
 
   funcBodyMemberOk(gs, us, s, ss, Global(id)) :- {T s' o}

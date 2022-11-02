@@ -7,6 +7,9 @@ imports
   dynamics/exps
   dynamics/stmts
   
+  dynamics/scope
+  dynamics/main
+  
   signatures/Definition-sig
   
 rules
@@ -15,30 +18,38 @@ rules
   // for every classdef we compile the following:
   // $initialize_<name>: takes a self ptr, vtbl ptr and initializes fields
   // <name>: allocates, calls $initialize_<name>, calls constructor
-  compileFunDef(ClassDef(name, super, body)) = {
+  compileFunDef(c@ClassDef(name, super, body)) = {
     initializeName <- var('"$initialize_" + name)
     self <- fresh-var(self)
     cont <- fresh-var(cont)
     vtable <- fresh-var(vtable)
     throw <- fresh-var(throw)
     
-    [fun initializeName([self, vtable, cont]) = {
-        {
-          var('"$initialize_" + super)@([self, vtable, after])
-        } label after/0:
+    [fun initializeName([self, cont, throw]) = {
+        superObj <- {
+          var('"$fn_" + super)@([after, throw])
+        } label after/1:
+        // TODO: fix recursive structs
+//        #struct-write(self, symbol('"P"), $frame)
+        #struct-write(self, symbol('"I"), superObj)
+        vtable <- #struct-read(superObj, symbol('"$vtable"))
+        #struct-write(self, symbol('"$vtable"), vtable) 
         
-        compileClassInitialize(self, vtable, body)
+        with $frame = self do {
+          compileClassInitialize(self, vtable, body)
+        }
         
         cont@([])
       },
       
       fun var('"$fn_" + name)([cont, throw]) = {
-        vtbl <- #record-new([])
-        zelf <- #record-new([str('"$vtable"), vtbl, str('"$type"), str(name)])
+        classT <- compileFrameType(members(c), ['"I" : *, '"P": *, '"$vtable": record<any>])
+        zelf <- #struct-new<classT>()
         
-        initializeName@([zelf, vtbl, after]) label after/0:
+        initializeName@([zelf, after, throw]) label after/0:
         
-        init <- #record-read(vtbl, str('"__init__"))
+        vtable <- #struct-read(zelf, symbol('"$vtable"))
+        init <- #record-read(vtable, str('"__init__"))
         init@([zelf, after, throw]) label after/1: // need this to be /1 for arity to be correct
         
         cont@([zelf])
@@ -54,11 +65,11 @@ rules
   compileClassMembers(_, _, []) = hole
   compileClassMembers(this, vtable, [VarDef(TypedVar(name, _), lit)|rest]) = {
     lv <- compileLiteral(lit)
-    #record-write(this, str(name), lv)
+    #struct-write(this, symbol(name), lv)
   
     compileClassMembers(this, vtable, rest)
   }
-  compileClassMembers(this, vtable, [FuncDef(n, args, _, body)|rest]) = {
+  compileClassMembers(this, vtable, [f@FuncDef(n, args, _, body)|rest]) = {
     return <- fresh-var(return)
     throw <- fresh-var(throw)
     name <- fresh-var(memberfn)
@@ -66,8 +77,13 @@ rules
     // todo: can we eliminate duplication here?
     fix {
       fun name(idsToVars(args) ++ [return, throw]) = {
-        wrapIdsInRefs(args)
-        with $return = return, $raise = throw do
+        padFrame <- #struct-new<struct<['"P": *]>>()  // Needed because the statix impl has weird scoping 
+        frameT <- compileFrameType(vars(f), ['"P" : *])
+        frame <- #struct-new<frameT>()
+
+        #struct-write(padFrame, symbol('"P"), $frame)
+        #struct-write(frame, symbol('"P"), padFrame)
+        with $frame = frame, $return = return, $raise = throw do
           compileFuncBody(body)
         return@([none()])
       }
@@ -80,18 +96,19 @@ rules
   
   compileNonFunDef(VarDef(TypedVar(name, _), val)) = {
     v <- compileLiteralBoxing(val)
-    ref <- #ref-new(v)
-    let var(name) = ref in hole
+    #struct-write($frame, symbol(name), v)
   }
+  
+  compileNonFunDef(VarDef(TypedVar(name, _), NONE())) = hole  // TODO: fix None
   
   compileNonFunDef(FuncDef(_, _, _, _)) = hole
   compileNonFunDef(ClassDef(_, _, _)) = hole
   
-  wrapIdsInRefs :: List('TypedVar) -> Pluggable
-  wrapIdsInRefs([]) = hole
-  wrapIdsInRefs([TypedVar(h, _)|t]) = {
-    wrapped <- #ref-new(var(h))
-    let var(h) = wrapped in wrapIdsInRefs(t)
+  wrapIdsInFrame :: List('TypedVar) -> Pluggable
+  wrapIdsInFrame([]) = hole
+  wrapIdsInFrame([TypedVar(h, _)|t]) = {
+    #struct-write($frame, symbol(h), var(h))
+    wrapIdsInFrame(t)
   }
   
   idsToVars :: List('TypedVar) -> List(@cval)
@@ -114,15 +131,22 @@ rules
   
 rules
   compileFunDef :: 'Definition -> List(@cfun)
-  compileFunDef(FuncDef(n, args, _, body)) = {
+  compileFunDef(f@FuncDef(n, args, _, body)) = {
     return <- fresh-var(return)
     throw <- fresh-var(throw)
     name <- var('"$fn_" + n)
     
     [fun name(idsToVars(args) ++ [return, throw]) = {
-      wrapIdsInRefs(args)
-      with $return = return, $raise = throw do
+      padFrame <- #struct-new<struct<['"P": *]>>()  // Needed because the statix impl has weird scoping 
+      frameT <- compileFrameType(vars(f), ['"P" : *])
+      frame <- #struct-new<frameT>()
+      
+      #struct-write(padFrame, symbol('"P"), $frame)
+      #struct-write(frame, symbol('"P"), padFrame)
+      with $frame = frame, $return = return, $raise = throw do {
+        wrapIdsInFrame(args)
         compileFuncBody(body)
+      }
       return@([none()])
     }]
   }

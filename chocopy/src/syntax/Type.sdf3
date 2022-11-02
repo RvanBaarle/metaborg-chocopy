@@ -8,7 +8,7 @@ context-free sorts
 	Type
 	TypedVar
 	Literal
-	STRING
+	STRINGLITERAL
 	IDSTRING
 
 context-free syntax
@@ -26,10 +26,10 @@ context-free syntax
 	Literal.True 	= <True>
 	Literal.False 	= <False>
 	Literal.Int 	= INT
-	Literal.String 	= STRING
+	Literal.String 	= STRINGLITERAL
 	
 syntax
-    STRING-CF.STRING = '"' STRINGC-LEX '"'
+    STRINGLITERAL-CF.STRINGLITERAL = '"' STRINGC-LEX '"'
 
 lexical syntax
 	

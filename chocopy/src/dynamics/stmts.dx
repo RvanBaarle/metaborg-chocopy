@@ -3,6 +3,7 @@ module dynamics/stmts
 imports
   dynamics/stdlib
   dynamics/native
+  dynamics/scope
   
   dynamics/exps
   dynamics/main
@@ -34,14 +35,15 @@ rules
   compileAssign :: 'Target * @cval -> Pluggable
   compileAssign(t@Var(x), v) = {
     possiblyBoxed <- compileExpBoxingHelper(box(t), v)
-    #ref-store(var(x), possiblyBoxed)
+    frame <- resolveFrame($frame, path(x))
+    #struct-write(frame, symbol(x), possiblyBoxed)
   }
   compileAssign(t@Index(x, y), v) = {
     possiblyBoxed <- compileExpBoxingHelper(box(t), v)
     tgt <- compileExp(x)
     idx <- compileExp(y)
     assertNotNone(tgt)
-    arrayval <- #record-read(tgt, str('"value"))
+    arrayval <- #struct-read(tgt, symbol('"value"))
     assertArrayWithinBounds(arrayval, idx)
     #array-write(arrayval, idx, possiblyBoxed)
   }
@@ -49,7 +51,8 @@ rules
     possiblyBoxed <- compileExpBoxingHelper(box(t), v)
     tgt <- compileExp(x)
     assertNotNone(tgt)
-    #record-write(tgt, str(y), possiblyBoxed)
+    frame <- resolveFrame(tgt, path(y))
+    #struct-write(frame, symbol(y), possiblyBoxed)
   }
   
   compileStmt(ReturnNone()) = $return@([none()])
@@ -102,18 +105,19 @@ rules
   compileFor([LIST(_)|_], For(a, b, c)) = { // array
     bv <- compileExp(b)
     assertNotNone(bv)
-    barr <- #record-read(bv, str('"value"))
+    barr <- #struct-read(bv, symbol('"value"))
     len <- #array-length(barr)
     
     body <- fresh-var(body)
     i <- fresh-var(i)
+    frame <- resolveFrame($frame, path(a))
     
     fix {
       fun body([i]) = if #int-eq(i, len) then {
         after@([])
       } else {
         arrv <- #array-read(barr, i)
-        #ref-store(var(a), arrv)
+        #struct-write(frame, symbol(a), arrv)
         compileBlock(c)
         ii <- #int-add(i, int('1))
         body@([ii])
@@ -128,13 +132,14 @@ rules
     
     body <- fresh-var(body)
     i <- fresh-var(i)
+    frame <- resolveFrame($frame, path(a))
     
     fix {
       fun body([i]) = if #int-eq(i, len) then {
         after@([])
       } else {
         strv <- #str-index(bv, i)
-        #ref-store(var(a), strv)
+        #struct-write(frame, symbol(a), strv)
         compileBlock(c)
         ii <- #int-add(i, int('1))
         body@([ii])
@@ -170,7 +175,8 @@ rules
     compileBlock(body)
     after@([])
   }
-  
+
+  // TODO: Fix try catches
   compileStmt(Try(body, excepts, NoTryFinally())) = {
     handler <- fresh-var(handler)
     raised <- fresh-var(raised)
@@ -247,7 +253,7 @@ rules
   compileExcepts([], v, _, _) = $raise@([v])
   compileExcepts([TryExcept(Type(t), id, body)|rest], val, exnty, after) = {
     if #str-eq(exnty, str(t)) then {
-      vref <- #ref-new(val)
+      vref <- #ref-new(val)  // TODO: to struct frame
       let var(id) = vref in {
         compileBlock(body)
         after@([])

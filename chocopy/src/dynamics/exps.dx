@@ -3,6 +3,7 @@ module dynamics/exps
 imports
   dynamics/stdlib
   dynamics/native
+  dynamics/scope
   
   dynamics/main
   
@@ -48,7 +49,10 @@ rules
     }
   } label after/1:
   
-  compileExp(Var(x)) = #ref-fetch(var(x))
+  compileExp(Var(x)) = {
+    frame <- resolveFrame($frame, path(x))
+    #struct-read(frame, symbol(x))
+  }
   
   compileExp(a@NONE()) = compileLiteral(a)
   compileExp(a@True()) = compileLiteral(a)
@@ -60,13 +64,17 @@ rules
   compileExp(List(a)) = {
     av <- compileExpsBoxing(a)
     arr <- #array-new(av)
-    #record-new([str('"$type"), str('"List"), str('"value"), arr])
+    lst <- #struct-new<typevar('"box")>()
+    #struct-write(lst, symbol('"$type"), str('"List"))
+    #struct-write(lst, symbol('"value"), arr)
+    lst
   }
   
   compileExp(Member(a, b)) = {
     mem <- compileExp(a)
     assertNotNone(mem)
-    #record-read(mem, str(b))
+    frame <- resolveFrame(mem, path(b))
+    #struct-read(frame, symbol(b))
   }
   
   compileExp(e@Index(a, _)) = compileIndex(type(a), e)
@@ -76,7 +84,7 @@ rules
     av <- compileExp(a)
     assertNotNone(av)
     bv <- compileExp(b)
-    arrayval <- #record-read(av, str('"value"))
+    arrayval <- #struct-read(av, symbol('"value"))
     assertArrayWithinBounds(arrayval, bv)
     #array-read(arrayval, bv)
   }
@@ -96,7 +104,7 @@ rules
     mem <- compileExp(member)
     assertNotNone(mem)
     
-    vtable <- #record-read(mem, str('"$vtable"))
+    vtable <- #struct-read(mem, symbol('"$vtable"))
     fn <- #record-read(vtable, str(prop))
     
     argv <- compileExpsBoxing(args)
@@ -122,10 +130,13 @@ rules
     bv <- compileExp(b)
     assertNotNone(av)
     assertNotNone(bv)
-    aiv <- #record-read(av, str('"value"))
-    biv <- #record-read(bv, str('"value"))
+    aiv <- #struct-read(av, symbol('"value"))
+    biv <- #struct-read(bv, symbol('"value"))
     conc <- #array-concat(aiv, biv)
-    #record-new([str('"$type"), str('"List"), str('"value"), conc])
+    lst <- #struct-new<typevar('"box")>()
+    #struct-write(lst, symbol('"$type"), str('"List"))
+    #struct-write(lst, symbol('"value"), conc)
+    lst
   }
   compileAdd([_], Add(a, b)) = { // must be string if others didn't match
     av <- compileExp(a)
@@ -207,7 +218,7 @@ rules
   compileLiteral(True()) = int('1)
   compileLiteral(False()) = int('0)
   compileLiteral(Int(i)) = int(i)
-  compileLiteral(String(STRING(s))) = str(s)
+  compileLiteral(String(STRINGLITERAL(s))) = str(s)
   
   compileLiteralBoxing :: 'Literal -> Pluggable(@cval)
   compileLiteralBoxing(l) = {

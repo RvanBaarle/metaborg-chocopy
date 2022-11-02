@@ -6,19 +6,13 @@ imports
   statics/types
 
 signature
-  namespaces
-  	Var			: ID
-  	Class		: ID
-  	Member		: ID
   relations
-  	scopeOf 	: occurrence -> (scope * int)
-  	type 		: occurrence -> (TYPE * scope * ID)
-   	className 	: 			 -> ID
+   	var : ID -> TYPE
+   	className : -> ID
+   	class : ID -> (scope * int)
+   	member : ID -> TYPE
   name-resolution
   	labels P I
-  	resolve Var filter P* min $ < P
-  	resolve Class filter P* min $ < P
-  	resolve Member filter I* min $ < I
   
 rules
   declOk			: scope * ID
@@ -32,93 +26,170 @@ rules
   resolveFun	 	: scope * ID -> TYPE
   resolveMember	 	: scope * ID -> TYPE
   resolveClass		: scope * ID -> (scope * int)
+  resolveVars       : scope -> list((ID * TYPE))
+  resolveFuns       : scope -> list((ID * TYPE))
+  resolveClasses    : scope -> list((ID * scope))
+  resolveMembers	: scope -> list((ID * TYPE))
+  resolveMemberFuns	: scope -> list((ID * TYPE))
+  
+  scopeFromPath     : path -> scope
   
   overrideOk 		: scope * ID * TYPE
-  checkOverride 	: TYPE * ID * list((path * (occurrence * (TYPE * scope * ID))))
+  checkOverride 	: TYPE * ID * list((path * (ID * TYPE)))
   
 rules // declare class
 
   declClass(gs, cs, id, i) :-
-  	gs -> Class{id} with scopeOf((cs, i)),
+  	!class[id, (cs, i)] in gs,
   	!className[id] in cs,
-  	Class{id} in gs |-> [(_, (_))] 
+  	query class
+  	  filter P* and eq(id)
+  	    min $ < P and true
+  	      in gs |-> [_] 
   	  | error $[Class [id] is defined more than once].
   
   resolveClass(s, id) = (s', i') :- {id'} @id.ref := id',
-  	scopeOf of Class{id} in s |-> [(_, (Class{id'}, (s', i')))|_] 
+  	query class
+  	  filter P* and eq(id)
+  	    min $ < P and true
+  	      in s |-> [(_, (id', (s', i')))|_] 
   	  | error $[Class [id] is not defined].
   
   declMember(s, id, t) :-
-  	s -> Member{id} with type((t, s, id)),
+  	!member[id, t] in s,
   	overrideOk(s, id, t).
   
   overrideOk(s, id, _) :- 
-  	query decl
-        filter I* and { Member{ id' } :- id' == id }
-        min $ < I and { _, _ :- false }
+  	query member
+        filter I* and eq(id)
+        min $ < I and false
         in s |-> [(_, _)]         
      | error $[Field [id] cannot be overwritten].
         
   overrideOk(s, id, t@FUN(_, _)) :- {l}
-    query type
-        filter e and { Member{ id' } :- id' == id }
-        min $ < I and { _, _ :- false }
+    query member
+        filter e and eq(id)
+        min $ < I and false
         in s |-> [_] 
       | error $[Cannot redefine method [id] in the same class],
-  	query type
-        filter I* and { Member{ id' } :- id' == id }
-        min $ < I and { _, _ :- false }
+  	query member
+        filter I* and eq(id)
+        min $ < I and false
         in s |-> l,
   	checkOverride(t, id, l) 
   	  | error $[Overriding function [id] does not have the same signature].
    
   checkOverride(_, _, []).
 
-  checkOverride(T@FUN(RT, [ST | ATs]), id, [(_, (Member{id'}, (FUN(RT, [AT | ATs]), _, _) )) | t]) :- @id.ref += id',
+  checkOverride(T@FUN(RT, [ST | ATs]), id, [(_, (id', FUN(RT, [AT | ATs]) )) | t]) :- @id.ref += id',
   	isSubtype(AT, ST),
   	checkOverride(T, id, t).
   	
   declVar(s, id, t, o) :- 
   	declOk(s, id),
-  	s -> Var{id} with type((t, s, o)),
-  	Var{id} in s |-> [(_, (_))] 
+  	!var[id, t] in s,
+  	query var
+  	  filter P* and eq(id)
+  	    min $ < P and true
+  	      in s |-> [_]
   	  | error $[Name [id] is already defined in this scope].
   	
   declFun(s, id, t) :-
   	declOk(s, id),
-  	s -> Var{id} with type((t, s, id)),
-  	query 
-  		decl 
-  		filter e 
-  		and { Var{id'} :- id == id' } 
-  		min  and { _, _ :- true }
-  		in s |-> [(_, (_))].
+  	!var[id, t] in s,
+  	query var
+  		filter e and eq(id)
+  		  min and true
+  		    in s |-> [_].
   		
   declClassFun(s, id, t) :-
-  	s -> Var{id} with type((t, s, id)),
-  	query 
-  		decl 
-  		filter e 
-  		and { Var{id'} :- id == id' } 
-  		min  and { _, _ :- true }
-  		in s |-> [(_, (_))].
+  	!var[id, t] in s,
+  	query var
+  		filter e and eq(id)
+  		  min and true
+  		    in s |-> [_].
   		
-  declOk(s, id)       :- Class{id} in s |-> [] | error $[Cannot shadow class [id]].  	
+  declOk(s, id)       :- query class filter P* and eq(id) min $ < P and true in s |-> [] | error $[Cannot shadow class [id]].  	
   declOk(_, "str")    :- false | error $[Cannot shadow class str].
   declOk(_, "bool")   :- false | error $[Cannot shadow class bool].
   declOk(_, "object") :- false | error $[Cannot shadow class object].
   declOk(_, "int")    :- false | error $[Cannot shadow class int].
   
-  resolveVar(s, x) = (T, s', o) :- {x'} @x.ref += x',
-  	type of Var{x} in s |-> [(_, (Var{x'}, (T, s', o)))|_] 
-  	  | error $[Variable [x] not defined].
-  	
-  resolveMember(s, x) = T :- {x'} @x.ref := x',
-  	type of Member{x} in s |-> [(_, (Member{x'}, (T, _, _)))|_] 
-  	  | error $[Member [x] not defined].
-  	
-  resolveFun(s, x) = T :- {x'} @x.ref := x',
-  	type of Var{x} in s |-> [(_, (Var{x'}, (T, _, _)))|_] 
-  	  | error $[Function [x] not defined].
+  resolveVar(s, x) = (T, s', x') :- {p} @x.ref += x',
+    query var
+      filter P* and eq(x)
+        min $ < P and true
+          in s |-> [(p, (x', T))|_]
+  	  | error $[Variable [x] not defined],
+  	s' == scopeFromPath(p),
+  	@x.path := p.
 
+  scopeFromPath(_PathEmpty(s)) = s.
+  scopeFromPath(_PathStep(_, _, s)) = s.
+  	
+  resolveMember(s, x) = T :- {p x'} @x.ref := x',
+    query member
+      filter I* and eq(x)
+        min $ < I and true
+          in s |-> [(p, (x', T))|_]
+  	  | error $[Member [x] not defined],
+  	@x.path := p.
+  	
+  resolveFun(s, x) = T :- {x' p} @x.ref := x',
+    query var
+      filter P* and eq(x)
+        min $ < P and true
+          in s |-> [(p, (x', T))|_]
+  	  | error $[Function [x] not defined],
+  	@x.path := p.
+
+  filterVars : list((path * (ID * TYPE))) -> list((ID * TYPE))
+  filterFuns : list((path * (ID * TYPE))) -> list((ID * TYPE))
+  filterClasses : list((path * (ID * (scope * int)))) -> list((ID * scope))
+
+  filterVars([]) = [].
+  filterVars([(_, (_, FUN(_, _)))|t]) = filterVars(t).
+  filterVars([(_, (x, T))|t]) = [(x, T)|filterVars(t)].
+  
+  filterFuns([]) = [].
+  filterFuns([(_, (x, T@FUN(_, _)))|t]) = [(x, T)|filterFuns(t)].
+  filterFuns([(_, _)|t]) = filterFuns(t).
+  
+  filterClasses([]) = [].
+  filterClasses([(_, (x, (s, _)))|t]) = [(x, s)|filterClasses(t)].
+
+  resolveVars(s) = Ts :- {ps}
+    query var
+      filter e and true
+        min and true
+          in s |-> ps,
+    filterVars(ps) == Ts.
+
+  resolveFuns(s) = Ts :- {ps}
+    query var
+      filter e and true
+        min and true
+          in s |-> ps,
+    filterFuns(ps) == Ts.
+
+  resolveClasses(s) = Ts :- {ps}
+    query class
+      filter e and true
+        min and true
+          in s |-> ps,
+    filterClasses(ps) == Ts.
+
+  resolveMembers(s) = Ts :- {ps}
+    query member
+      filter e and true
+        min and true
+          in s |-> ps,
+    filterVars(ps) == Ts.
+
+  resolveMemberFuns(s) = Ts :- {ps}
+    query member
+      filter e and true
+        min and true
+          in s |-> ps,
+    filterFuns(ps) == Ts.
   
