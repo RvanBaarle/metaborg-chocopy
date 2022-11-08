@@ -25,17 +25,19 @@ rules
     vtable <- fresh-var(vtable)
     throw <- fresh-var(throw)
     
+    classT <- compileFrameType(typevar('"" + name), members(c), ['"I" : typevar('"" + super), '"P": $frameT, '"$vtable": record<any>])
+    hole // TODO: this hole should not be needed
     [fun initializeName([self, cont, throw]) = {
         superObj <- {
           var('"$fn_" + super)@([after, throw])
         } label after/1:
         // TODO: fix recursive structs
-//        #struct-write(self, symbol('"P"), $frame)
+        #struct-write(self, symbol('"P"), $frame)
         #struct-write(self, symbol('"I"), superObj)
         vtable <- #struct-read(superObj, symbol('"$vtable"))
         #struct-write(self, symbol('"$vtable"), vtable) 
         
-        with $frame = self do {
+        with $frame = self, $frameT = classT do {
           compileClassInitialize(self, vtable, body)
         }
         
@@ -43,7 +45,6 @@ rules
       },
       
       fun var('"$fn_" + name)([cont, throw]) = {
-        classT <- compileFrameType(members(c), ['"I" : *, '"P": *, '"$vtable": record<any>])
         zelf <- #struct-new<classT>()
         
         initializeName@([zelf, after, throw]) label after/0:
@@ -69,7 +70,7 @@ rules
   
     compileClassMembers(this, vtable, rest)
   }
-  compileClassMembers(this, vtable, [f@FuncDef(n, args, _, body)|rest]) = {
+  compileClassMembers(this, vtable, [f@FuncDef(n, [TypedVar(self, _)|args], _, body)|rest]) = {
     return <- fresh-var(return)
     throw <- fresh-var(throw)
     name <- fresh-var(memberfn)
@@ -77,14 +78,15 @@ rules
     // todo: can we eliminate duplication here?
     fix {
       fun name(idsToVars(args) ++ [return, throw]) = {
-        padFrame <- #struct-new<struct<['"P": *]>>()  // Needed because the statix impl has weird scoping 
-        frameT <- compileFrameType(vars(f), ['"P" : *])
+        frameT <- compileFrameType(fresh-typevar(frame), vars(f), ['"P" : $frameT])
         frame <- #struct-new<frameT>()
 
-        #struct-write(padFrame, symbol('"P"), $frame)
-        #struct-write(frame, symbol('"P"), padFrame)
-        with $frame = frame, $return = return, $raise = throw do
+        #struct-write(frame, symbol('"P"), $frame)
+        with $frame = frame, $frameT = frameT, $return = return, $raise = throw do {
+          #struct-write(frame, symbol(self), this)
+          wrapIdsInFrame(args)
           compileFuncBody(body)
+        }
         return@([none()])
       }
     }
@@ -118,7 +120,8 @@ rules
   compileFuncBody :: 'FuncBody -> Pluggable
   compileFuncBody(FuncBody(defs, stmts)) = {
     compileNonFunFuncBodyMembers(defs)
-    fix { compileFunFuncBodyMembers(defs) }
+    funs <- compileFunFuncBodyMembers(defs)
+    fix { funs }
     compileStmts(stmts)
   }
   
@@ -130,20 +133,18 @@ rules
   compileNonFunFuncBodyMember(a@FuncDef(_, _, _, _)) = hole
   
 rules
-  compileFunDef :: 'Definition -> List(@cfun)
+  compileFunDef :: 'Definition -> Pluggable(List(@cfun))
   compileFunDef(f@FuncDef(n, args, _, body)) = {
     return <- fresh-var(return)
     throw <- fresh-var(throw)
     name <- var('"$fn_" + n)
-    
+    hole // TODO: this hole should not be needed here
     [fun name(idsToVars(args) ++ [return, throw]) = {
-      padFrame <- #struct-new<struct<['"P": *]>>()  // Needed because the statix impl has weird scoping 
-      frameT <- compileFrameType(vars(f), ['"P" : *])
+      frameT <- compileFrameType(fresh-typevar(frame), vars(f), ['"P" : $frameT])
       frame <- #struct-new<frameT>()
       
-      #struct-write(padFrame, symbol('"P"), $frame)
-      #struct-write(frame, symbol('"P"), padFrame)
-      with $frame = frame, $return = return, $raise = throw do {
+      #struct-write(frame, symbol('"P"), $frame)
+      with $frame = frame, $frameT = frameT, $return = return, $raise = throw do {
         wrapIdsInFrame(args)
         compileFuncBody(body)
       }
@@ -152,7 +153,7 @@ rules
   }
   compileFunDef(_) = []
   
-  compileFuncBodyMemberFunDef :: 'FuncBodyMember -> List(@cfun)
+  compileFuncBodyMemberFunDef :: 'FuncBodyMember -> Pluggable(List(@cfun))
   compileFuncBodyMemberFunDef(d@FuncDef(_, _, _, _)) = compileFunDef(d)
   compileFuncBodyMemberFunDef(_) = []
   
@@ -164,9 +165,14 @@ rules
     compileNonFunDefs(tl)
   }
   
-  compileFunDefs :: List('Definition) -> List(@cfun)
+  compileFunDefs :: List('Definition) -> Pluggable(List(@cfun))
   compileFunDefs([]) = []
   compileFunDefs([h|t]) = {
+    hh <- compileFunDef(h)
+    tt <- compileFunDefs(t)
+    hh ++ tt
+  }
+  compileFunDefs([h@FuncDef(_, _, _, _)|t]) = {
     hh <- compileFunDef(h)
     tt <- compileFunDefs(t)
     hh ++ tt
@@ -179,7 +185,7 @@ rules
     compileNonFunFuncBodyMembers(tl)
   }
   
-  compileFunFuncBodyMembers :: List('FuncBodyMember) -> List(@cfun)
+  compileFunFuncBodyMembers :: List('FuncBodyMember) -> Pluggable(List(@cfun))
   compileFunFuncBodyMembers([]) = []
   compileFunFuncBodyMembers([h|t]) = {
     hh <- compileFuncBodyMemberFunDef(h)

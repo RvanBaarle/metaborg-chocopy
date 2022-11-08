@@ -78,10 +78,9 @@ rules
   assignsOk(s, [target | [target2 | targets]], LIST(NONETYPE())) :- false | error $[Right-hand side of multiple assignment may not be of type List(<None>)].
   
   assignOk(s, Target(Var2Target(v@Var(id))), ST) :- {T s'} @v.type += T,
-  	resolveVar(s, id) == (T, s', _),
+  	resolveLocalVar(s, id) == (T, s', _) | error $[Cannot assign to variable that is not explicitly defined in this scope],
   	isSubtype(T, ST),
-  	boxIfNeeded(astId(v), ST, T),
-  	try { s == s' } | error $[Cannot assign to variable that is not explicitly defined in this scope].
+  	boxIfNeeded(astId(v), ST, T).
   	
   assignOk(s, Target(Index2Target(t@Index(list, in))), ST) :- {T}
   	expOk(s, list) == LIST(T),

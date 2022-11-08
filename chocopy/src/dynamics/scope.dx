@@ -14,9 +14,8 @@ signature
 
 rules
 
-  compileFrameType :: List(('ID * 'TYPE)) * List(@cstructmember) -> Pluggable(@ctype)
-  compileFrameType(elems, extra) = {
-    tvar <- fresh-typevar(frame)
+  compileFrameType :: @ctype * List(('ID * 'TYPE)) * List(@cstructmember) -> Pluggable(@ctype)
+  compileFrameType(tvar, elems, extra) = {
     typedef {
       tvar = struct<compileFrameElements(elems) ++ extra>
     }
@@ -35,12 +34,18 @@ rules
   compileType(_) = *
 
   resolveFrame :: @cval * List('Path) -> Pluggable(@cval)
+  resolveFrame(f, []) = f
   resolveFrame(f, [PathEmpty(_)]) = f
   resolveFrame(f, [PathStep(p, Label("statics/decls!P"), _)]) = {
     f_next <- resolveFrame(f, [p])
     #struct-read(f_next, symbol('"P"))
   }
   resolveFrame(f, [PathStep(p, Label("statics/decls!I"), _)]) = {
+    f_next <- resolveFrame(f, [p])
+    #struct-read(f_next, symbol('"I"))
+  }
+  // HACK: can't make a fake label in the statix spec
+  resolveFrame(f, [PathStep(p, _, _)]) = {
     f_next <- resolveFrame(f, [p])
     #struct-read(f_next, symbol('"I"))
   }

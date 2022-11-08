@@ -84,7 +84,7 @@ rules
     av <- compileExp(a)
     assertNotNone(av)
     bv <- compileExp(b)
-    arrayval <- #struct-read(av, symbol('"value"))
+    arrayval <- #struct-read<array<any>>(av, symbol('"value"))
     assertArrayWithinBounds(arrayval, bv)
     #array-read(arrayval, bv)
   }
@@ -130,8 +130,8 @@ rules
     bv <- compileExp(b)
     assertNotNone(av)
     assertNotNone(bv)
-    aiv <- #struct-read(av, symbol('"value"))
-    biv <- #struct-read(bv, symbol('"value"))
+    aiv <- #struct-read<array<any>>(av, symbol('"value"))
+    biv <- #struct-read<array<any>>(bv, symbol('"value"))
     conc <- #array-concat(aiv, biv)
     lst <- #struct-new<typevar('"box")>()
     #struct-write(lst, symbol('"$type"), str('"List"))
@@ -167,17 +167,17 @@ rules
     mod(av, bv)
   }
   
-  // todo: term-eq equality might be wonky, but it passes the spec test
+  // todo: int-eq only works for ints (obviously)
   compileExp(Eq(a, b)) = {
     av <- compileExp(a)
     bv <- compileExp(b)
-    if #term-eq(av, bv) then after@([int('1)])
+    if #int-eq(av, bv) then after@([int('1)])
     else { after@([int('0)]) }
   } label after/1:
   compileExp(Neq(a, b)) = {
     av <- compileExp(a)
     bv <- compileExp(b)
-    if #term-eq(av, bv) then after@([int('0)])
+    if #int-eq(av, bv) then after@([int('0)])
     else { after@([int('1)]) }
   } label after/1:
   
@@ -230,7 +230,8 @@ rules
   compileExpBoxing :: 'Exp -> Pluggable(@cval)
   compileExpBoxing(e) = {
     compiled <- compileExp(e)
-    compileExpBoxingHelper(box(e), compiled)
+    compiled_resolved <- resolveFrame(compiled, path(e))
+    compileExpBoxingHelper(box(e), compiled_resolved)
   }
 
   compileExpBoxingHelper :: List('string) * @cval -> Pluggable(@cval)

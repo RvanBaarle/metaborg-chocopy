@@ -5,7 +5,7 @@ imports signatures/Expression-sig
 imports statics/decls
 
 signature
-  sorts TYPE 
+  sorts TYPE ACCESS
   constructors
 	CLASS		: scope * ID -> TYPE
 	INT			: TYPE
@@ -18,6 +18,10 @@ signature
 	EMPTY		: TYPE		
 	ITERABLE	: TYPE
 	INTBOOLSTR	: TYPE
+	
+	GLOBAL      : ACCESS
+	LOCAL       : ACCESS
+	NONLOCAL    : ACCESS
 		
 rules // interface
 
@@ -115,26 +119,27 @@ rules
   boxIfNeeded(x, INT(), OBJECT()) :- @x.box += "int".
   boxIfNeeded(x, BOOL(), OBJECT()) :- @x.box += "bool".
   boxIfNeeded(x, STRING(), OBJECT()) :- @x.box += "str".
+  boxIfNeeded(x, CLASS(s1, _), OBJECT()) :- {p}
+    query ()
+      filter I* and true
+        min I < $ and true
+          in s1 |-> [(p, _)],
+    @x.path := _PathStep(p, _, _).
+  boxIfNeeded(x, CLASS(s1, _), CLASS(s2, _)) :- {p}
+    query ()
+      filter I* and eq(s2)
+        min $ < I and true
+          in s1 |-> [(p, _)],
+    @x.path := p.
   boxIfNeeded(x, _, _) :- @x.box += "other".
   
   // need to special case injections, since their annotations disappear after implication
   // see https://github.com/metaborg/nabl/issues/98 for background/discussion
-  boxExpIfNeeded(Literal2Exp(x), INT(), OBJECT()) :- @x.box += "int".
-  boxExpIfNeeded(Literal2Exp(x), BOOL(), OBJECT()) :- @x.box += "bool".
-  boxExpIfNeeded(Literal2Exp(x), STRING(), OBJECT()) :- @x.box += "str".
-  boxExpIfNeeded(Index2Exp(x), INT(), OBJECT()) :- @x.box += "int".
-  boxExpIfNeeded(Index2Exp(x), BOOL(), OBJECT()) :- @x.box += "bool".
-  boxExpIfNeeded(Index2Exp(x), STRING(), OBJECT()) :- @x.box += "str".
-  boxExpIfNeeded(Var2Exp(x), INT(), OBJECT()) :- @x.box += "int".
-  boxExpIfNeeded(Var2Exp(x), BOOL(), OBJECT()) :- @x.box += "bool".
-  boxExpIfNeeded(Var2Exp(x), STRING(), OBJECT()) :- @x.box += "str".
-  boxExpIfNeeded(Member2Exp(x), INT(), OBJECT()) :- @x.box += "int".
-  boxExpIfNeeded(Member2Exp(x), BOOL(), OBJECT()) :- @x.box += "bool".
-  boxExpIfNeeded(Member2Exp(x), STRING(), OBJECT()) :- @x.box += "str".
-  boxExpIfNeeded(x, INT(), OBJECT()) :- @x.box += "int".
-  boxExpIfNeeded(x, BOOL(), OBJECT()) :- @x.box += "bool".
-  boxExpIfNeeded(x, STRING(), OBJECT()) :- @x.box += "str".
-  boxExpIfNeeded(x, _, _) :- @x.box += "other".
+  boxExpIfNeeded(Literal2Exp(x), a, b) :- boxIfNeeded(astId(x), a, b).
+  boxExpIfNeeded(Index2Exp(x), a, b) :- boxIfNeeded(astId(x), a, b).
+  boxExpIfNeeded(Var2Exp(x), a, b) :- boxIfNeeded(astId(x), a, b).
+  boxExpIfNeeded(Member2Exp(x), a, b) :- boxIfNeeded(astId(x), a, b).
+  boxExpIfNeeded(x, a, b) :- boxIfNeeded(astId(x), a, b).
   
   boxExpsIfNeeded([], [], _).
   boxExpsIfNeeded([a|tl], [T|ttl], ET) :- boxExpIfNeeded(a, T, ET), boxExpsIfNeeded(tl, ttl, ET).

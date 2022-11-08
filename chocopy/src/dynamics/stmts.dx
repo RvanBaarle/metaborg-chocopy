@@ -34,21 +34,24 @@ rules
   
   compileAssign :: 'Target * @cval -> Pluggable
   compileAssign(t@Var(x), v) = {
-    possiblyBoxed <- compileExpBoxingHelper(box(t), v)
+    v_resolved <- resolveFrame(v, path(t))
+    possiblyBoxed <- compileExpBoxingHelper(box(t), v_resolved)
     frame <- resolveFrame($frame, path(x))
     #struct-write(frame, symbol(x), possiblyBoxed)
   }
   compileAssign(t@Index(x, y), v) = {
-    possiblyBoxed <- compileExpBoxingHelper(box(t), v)
+    v_resolved <- resolveFrame(v, path(t))
+    possiblyBoxed <- compileExpBoxingHelper(box(t), v_resolved)
     tgt <- compileExp(x)
     idx <- compileExp(y)
     assertNotNone(tgt)
-    arrayval <- #struct-read(tgt, symbol('"value"))
+    arrayval <- #struct-read<array<any>>(tgt, symbol('"value"))
     assertArrayWithinBounds(arrayval, idx)
     #array-write(arrayval, idx, possiblyBoxed)
   }
   compileAssign(t@Member(x, y), v) = {
-    possiblyBoxed <- compileExpBoxingHelper(box(t), v)
+    v_resolved <- resolveFrame(v, path(t))
+    possiblyBoxed <- compileExpBoxingHelper(box(t), v_resolved)
     tgt <- compileExp(x)
     assertNotNone(tgt)
     frame <- resolveFrame(tgt, path(y))
@@ -105,7 +108,7 @@ rules
   compileFor([LIST(_)|_], For(a, b, c)) = { // array
     bv <- compileExp(b)
     assertNotNone(bv)
-    barr <- #struct-read(bv, symbol('"value"))
+    barr <- #struct-read<array<any>>(bv, symbol('"value"))
     len <- #array-length(barr)
     
     body <- fresh-var(body)

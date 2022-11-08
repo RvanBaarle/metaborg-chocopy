@@ -11,6 +11,7 @@ signature
    	className : -> ID
    	class : ID -> (scope * int)
    	member : ID -> TYPE
+   	access : ID -> ACCESS
   name-resolution
   	labels P I
   
@@ -23,6 +24,8 @@ rules
   declMember		: scope * ID * TYPE 
   
   resolveVar 		: scope * ID -> (TYPE * scope * ID)
+  resolveLocalVar   : scope * ID -> (TYPE * scope * ID)
+  resolveVarAccess  : scope * ID * ACCESS -> (TYPE * scope * ID)
   resolveFun	 	: scope * ID -> TYPE
   resolveMember	 	: scope * ID -> TYPE
   resolveClass		: scope * ID -> (scope * int)
@@ -88,6 +91,7 @@ rules // declare class
   declVar(s, id, t, o) :- 
   	declOk(s, id),
   	!var[id, t] in s,
+  	!access[id, LOCAL()] in s,
   	query var
   	  filter P* and eq(id)
   	    min $ < P and true
@@ -97,6 +101,7 @@ rules // declare class
   declFun(s, id, t) :-
   	declOk(s, id),
   	!var[id, t] in s,
+  	!access[id, LOCAL()] in s,
   	query var
   		filter e and eq(id)
   		  min and true
@@ -115,11 +120,49 @@ rules // declare class
   declOk(_, "object") :- false | error $[Cannot shadow class object].
   declOk(_, "int")    :- false | error $[Cannot shadow class int].
   
-  resolveVar(s, x) = (T, s', x') :- {p} @x.ref += x',
+  resolveVar(s, x) = (T, s', x') :- {A}
+    query access
+      filter P* and eq(x)
+        min $ < P and true
+          in s |-> [(_, (_, A))|_],
+    resolveVarAccess(s, x, A) == (T, s', x'),
+    @x.ref += x'.
+  
+  resolveLocalVar(s, x) = (T, s', x') :- {A}
+    query access
+      filter e and eq(x)
+        min $ < P and true
+          in s |-> [(_, (_, A))|_],
+    resolveVarAccess(s, x, A) == (T, s', x'),
+    @x.ref += x'.
+  
+  resolveVarAccess(s, x, LOCAL()) = (T, s', x') :- {p}
     query var
       filter P* and eq(x)
         min $ < P and true
           in s |-> [(p, (x', T))|_]
+  	  | error $[Variable [x] not defined],
+  	s' == scopeFromPath(p),
+  	@x.path := p.
+  
+  resolveVarAccess(s, x, NONLOCAL()) = (T, s', x') :- {p}
+    query var
+      filter P+ and eq(x)
+        min $ < P and true
+          in s |-> [(p, (x', T))|_]
+  	  | error $[Variable [x] not defined],
+  	s' == scopeFromPath(p),
+  	@x.path := p.
+  
+  resolveVarAccess(s, x, GLOBAL()) = (T, s', x') :- {p gs}
+    query ()
+      filter P* and true
+        min P < $ and true
+          in s |-> [(p, gs)],
+    query var
+      filter P* and eq(x)
+        min $ < P and true
+          in gs |-> [(_, (x', T))|_]
   	  | error $[Variable [x] not defined],
   	s' == scopeFromPath(p),
   	@x.path := p.

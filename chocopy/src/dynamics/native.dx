@@ -7,12 +7,12 @@ rules
   builtins :: () -> Pluggable
   builtins() = @
   typedef {
-    box = {$type: string, value: any, $vtable: record<any>}
+    object = {$type: string, value: any, $vtable: record<any>}
   } in
-  #struct-new<box>() => $NONE;
+  #struct-new<object>() => $NONE;
   #struct-write($NONE, !$type, "None") => _;
   #array-new() => $emptylistcontents;
-  #struct-new<box>() => $emptylist;
+  #struct-new<object>() => $emptylist;
   #struct-write($emptylist, !$type, "List") => _;
   #struct-write($emptylist, !value, $emptylistcontents) => _;
   fix {
@@ -32,7 +32,7 @@ rules
       #print("Unhandled exception") => tmp0;
       #exit()
   
-    fun $fn_print<box, *, *>(v, c, _) =
+    fun $fn_print<object, *, *>(v, c, _) =
       #struct-read(v, !$type) => type;
       if #str-eq(type, "None") then
         $err_invalidarg()
@@ -62,7 +62,7 @@ rules
       #int-mul(full_parts, b) => full;
       #int-sub(a, full) => mod;
       after(mod)
-    fun $assert_not_none<box, *>(val, after) =
+    fun $assert_not_none<object, *>(val, after) =
       #struct-read(val, !$type) => ty;
       if #str-eq(ty, "None") then
         #print("Operation on None") => tmp0;
@@ -78,7 +78,7 @@ rules
           $err_oob()
         else
           after()
-    fun $fn_len<box, *, *>(val, after, _) =
+    fun $fn_len<object, *, *>(val, after, _) =
       #struct-read(val, !$type) => ty;
       if #str-eq(ty, "List") then
         #struct-read(val, !value) => arval;
@@ -104,7 +104,7 @@ rules
     fun $fn_str(after, _) = after("")
     fun $fn_object(after, exn) =
       #record-new() => y6;
-      #struct-new<box>( ) => y10;
+      #struct-new<object>( ) => y10;
       #struct-write(y10, !$vtable, y6) => _;
       #struct-write(y10, !$type, "object") => _;
       fix {
@@ -152,7 +152,7 @@ rules
 rules
   boxInt :: @cval -> Pluggable(@cval)
   boxInt(v) = {
-    struct <- #struct-new<typevar('"box")>()
+    struct <- #struct-new<typevar('"object")>()
     #struct-write(struct, symbol('"$type"), str('"int"))
     #struct-write(struct, symbol('"value"), v)
     struct
@@ -160,7 +160,7 @@ rules
   
   boxString :: @cval -> Pluggable(@cval)
   boxString(v) = {
-    struct <- #struct-new<typevar('"box")>()
+    struct <- #struct-new<typevar('"object")>()
     #struct-write(struct, symbol('"$type"), str('"str"))
     #struct-write(struct, symbol('"value"), v)
     struct
@@ -168,7 +168,7 @@ rules
   
   boxBool :: @cval -> Pluggable(@cval)
   boxBool(v) = {
-    struct <- #struct-new<typevar('"box")>()
+    struct <- #struct-new<typevar('"object")>()
     #struct-write(struct, symbol('"$type"), str('"bool"))
     #struct-write(struct, symbol('"value"), v)
     struct
@@ -176,7 +176,7 @@ rules
   
   boxAny :: @cval -> Pluggable(@cval)
   boxAny(v) = {
-    struct <- #struct-new<typevar('"box")>()
+    struct <- #struct-new<typevar('"object")>()
     #struct-write(struct, symbol('"$type"), str('"object"))
     #struct-write(struct, symbol('"value"), v)
     struct

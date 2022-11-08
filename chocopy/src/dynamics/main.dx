@@ -42,17 +42,19 @@ rules
   $return :: @cval
   $raise :: @cval
   $frame :: @cval
+  $frameT :: @ctype
 
   compileProgram :: 'Program -> Pluggable
   
   compileProgram(p@Program(defs, stmts)) = {
     builtins()
-    frameT <- compileFrameType(vars(p), [])
+    frameT <- compileFrameType(fresh-typevar(frame), vars(p), [])
     frame <- #struct-new<frameT>()
     classConstructors()
-    with $frame = frame, $raise = var('"$err_unhandledexn"), $return = var('"$dummy_toplevelreturn") do {
+    with $frame = frame, $frameT = frameT, $raise = var('"$err_unhandledexn"), $return = var('"$dummy_toplevelreturn") do {
       compileNonFunDefs(defs)
-      fix { compileFunDefs(defs) }
+      fundefs <- compileFunDefs(defs)
+      fix { fundefs }
       compileStmts(stmts)
     }
   }
