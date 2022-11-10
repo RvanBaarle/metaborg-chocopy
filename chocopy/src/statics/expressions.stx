@@ -15,7 +15,7 @@ rules
   isOk 				: TYPE * TYPE
   addOk 			: TYPE * TYPE -> TYPE
   
-  validInit			: TYPE
+  validInit			: ID * TYPE
   
   literalOk(l@NONE()) = NONETYPE() :- @l.type += NONETYPE(). 
   literalOk(l@True()) = BOOL() :- @l.type += BOOL().  
@@ -116,16 +116,18 @@ rules
   	expsOk(s, params) == Ps,
   	areSubtypesBoxing(params, Ts, Ps).
   	
-  expOk(s, c@Call(Member2Exp(m@Member(e, "__init__")), Exps2Parameters([]))) = NONETYPE() :- {T} 
+  expOk(s, c@Call(Member2Exp(m@Member(e, x@"__init__")), Exps2Parameters([]))) = NONETYPE() :- {T} 
   	T == expOk(s, e),
   	boxExpIfNeeded(e, T, OBJECT()),
-  	validInit(T) | error $[__init__ not allowed on non-class type [T]],
+  	validInit(x, T) | error $[__init__ not allowed on non-class type [T]],
     @c.type += NONETYPE(), @m.type += FUN(NONETYPE(), [T]).
     
-  validInit(_).
-  validInit(NONETYPE()) :- false.
-  validInit(LIST(_)) :- false.
-  validInit(EMPTY()) :- false.
+  validInit(x, CLASS(s, _)) :-
+    resolveMemberPath(s, x, _, FUN(_, _)).
+  validInit(_, _).
+  validInit(x, NONETYPE()) :- false.
+  validInit(x, LIST(_)) :- false.
+  validInit(x, EMPTY()) :- false.
   	
   expOk(s, Member2Exp(m@Member(e, id))) = T :- {cs} @m.type += T,
   	expOk(s, e) == CLASS(cs, _),

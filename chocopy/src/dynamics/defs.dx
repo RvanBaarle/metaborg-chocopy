@@ -22,10 +22,9 @@ rules
     initializeName <- var('"$initialize_" + name)
     self <- fresh-var(self)
     cont <- fresh-var(cont)
-    vtable <- fresh-var(vtable)
     throw <- fresh-var(throw)
     
-    classT <- compileFrameType(typevar('"" + name), members(c), ['"I" : typevar('"" + super), '"P": $frameT, '"$vtable": record<any>])
+    classT <- compileFrameType(typevar(name), members(c) ++ methods(c), ['"I" : typevar(super), '"P": $frameT])
     hole // TODO: this hole should not be needed
     [fun initializeName([self, cont, throw]) = {
         superObj <- {
@@ -34,11 +33,9 @@ rules
         // TODO: fix recursive structs
         #struct-write(self, symbol('"P"), $frame)
         #struct-write(self, symbol('"I"), superObj)
-        vtable <- #struct-read(superObj, symbol('"$vtable"))
-        #struct-write(self, symbol('"$vtable"), vtable) 
         
         with $frame = self, $frameT = classT do {
-          compileClassInitialize(self, vtable, body)
+          compileClassInitialize(self, body)
         }
         
         cont@([])
@@ -49,28 +46,27 @@ rules
         
         initializeName@([zelf, after, throw]) label after/0:
         
-        vtable <- #struct-read(zelf, symbol('"$vtable"))
-        init <- #record-read(vtable, str('"__init__"))
-        init@([zelf, after, throw]) label after/1: // need this to be /1 for arity to be correct
+//        init <- #record-read(vtable, str('"__init__"))
+//        init@([zelf, after, throw]) label after/1: // need this to be /1 for arity to be correct
         
         cont@([zelf])
       }
     ]
   }
   
-  compileClassInitialize :: @cval * @cval * 'ClassBody -> Pluggable
-  compileClassInitialize(_, _, Pass()) = hole
-  compileClassInitialize(this, vtable, members@[_|_]) = compileClassMembers(this, vtable, members)
+  compileClassInitialize :: @cval * 'ClassBody -> Pluggable
+  compileClassInitialize(_, Pass()) = hole
+  compileClassInitialize(this, members@[_|_]) = compileClassMembers(this, members)
   
-  compileClassMembers :: @cval * @cval * List('ClassBodyMember) -> Pluggable
-  compileClassMembers(_, _, []) = hole
-  compileClassMembers(this, vtable, [VarDef(TypedVar(name, _), lit)|rest]) = {
+  compileClassMembers :: @cval * List('ClassBodyMember) -> Pluggable
+  compileClassMembers(_, []) = hole
+  compileClassMembers(this, [VarDef(TypedVar(name, _), lit)|rest]) = {
     lv <- compileLiteral(lit)
     #struct-write(this, symbol(name), lv)
   
-    compileClassMembers(this, vtable, rest)
+    compileClassMembers(this, rest)
   }
-  compileClassMembers(this, vtable, [f@FuncDef(n, [TypedVar(self, _)|args], _, body)|rest]) = {
+  compileClassMembers(this, [f@FuncDef(n, [TypedVar(self, _)|args], _, body)|rest]) = {
     return <- fresh-var(return)
     throw <- fresh-var(throw)
     name <- fresh-var(memberfn)
@@ -91,9 +87,10 @@ rules
       }
     }
     
-    #record-write(vtable, str(n), name)
+    frame <- resolveFrame(this, path(n))
+    #struct-write(frame, symbol(n), name)
       
-    compileClassMembers(this, vtable, rest)
+    compileClassMembers(this, rest)
   }
   
   compileNonFunDef(VarDef(TypedVar(name, _), val)) = {

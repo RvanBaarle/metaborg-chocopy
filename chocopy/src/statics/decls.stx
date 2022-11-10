@@ -176,7 +176,26 @@ rules // declare class
         min $ < I and true
           in s |-> [(p, (x', T))|_]
   	  | error $[Member [x] not defined],
+  	resolveMemberPath(s, x, p, T).
+  
+  resolveMemberPath : scope * ID * path * TYPE
+  	
+  resolveMemberPath(s, x, p, T) :-
   	@x.path := p.
+  	
+  resolveMemberPath(s, x, _, FUN(_, _)) :- {p}
+    query member
+      filter I* and eq(x)
+        min I < $ and true
+          in s |-> [(p, _)|_],
+  	@x.path := p.
+  
+  resolveMemberPath(s, x@"__init__", _, FUN(_, _)) :- {p}
+    query ()
+      filter I* and true
+        min I < $ and true
+          in s |-> [(p, _)|_],
+  	@x.path := _PathStep(p, _, _).
   	
   resolveFun(s, x) = T :- {x' p} @x.ref := x',
     query var

@@ -7,7 +7,7 @@ rules
   builtins :: () -> Pluggable
   builtins() = @
   typedef {
-    object = {$type: string, value: any, $vtable: record<any>}
+    object = {$type: string, value: any, __init__: function<function<object>, function<object>>}
   } in
   #struct-new<object>() => $NONE;
   #struct-write($NONE, !$type, "None") => _;
@@ -28,11 +28,11 @@ rules
       #print("Invalid argument") => tmp0;
       #print("Exited with error code 1") => tmp1;
       #exit()
-    fun $err_unhandledexn(a) =
+    fun $err_unhandledexn<object>(a) =
       #print("Unhandled exception") => tmp0;
       #exit()
   
-    fun $fn_print<object, *, *>(v, c, _) =
+    fun $fn_print<object, function<object>, function<object>>(v, c, _) =
       #struct-read(v, !$type) => type;
       if #str-eq(type, "None") then
         $err_invalidarg()
@@ -62,7 +62,7 @@ rules
       #int-mul(full_parts, b) => full;
       #int-sub(a, full) => mod;
       after(mod)
-    fun $assert_not_none<object, *>(val, after) =
+    fun $assert_not_none<object, function<>>(val, after) =
       #struct-read(val, !$type) => ty;
       if #str-eq(ty, "None") then
         #print("Operation on None") => tmp0;
@@ -78,22 +78,22 @@ rules
           $err_oob()
         else
           after()
-    fun $fn_len<object, *, *>(val, after, _) =
+    fun $fn_len<object, function<int>, function<object>>(val, after, _) =
       #struct-read(val, !$type) => ty;
       if #str-eq(ty, "List") then
-        #struct-read(val, !value) => arval;
+        #struct-read<array<any>>(val, !value) => arval;
         #array-length(arval) => len;
         after(len)
       else
         if #str-eq(ty, "str") then
-          #struct-read(val, !value) => strval;
+          #struct-read<array<any>>(val, !value) => strval;
           #str-length(strval) => len;
           after(len)
         else
           $err_invalidarg()
-    fun $object__init__(self, cont, _) = cont(self)
-    fun $initialize_object<*, record<any>, *>(self, vtable, cont) = 
-      #record-write(vtable, "__init__", $object__init__) => tmp0;
+    fun $object__init__<function<object>, function<object>>(cont, _) = cont($NONE)
+    fun $initialize_object<object, function<>>(self, cont) = 
+      #struct-write(self, !__init__, $object__init__) => tmp0;
       cont()
   } in hole
   
@@ -102,16 +102,14 @@ rules
     fun $fn_int(after, _) = after(0)
     fun $fn_bool(after, _) = after(0)
     fun $fn_str(after, _) = after("")
-    fun $fn_object(after, exn) =
-      #record-new() => y6;
+    fun $fn_object<function<object>, function<object>>(after, exn) =
       #struct-new<object>( ) => y10;
-      #struct-write(y10, !$vtable, y6) => _;
       #struct-write(y10, !$type, "object") => _;
       fix {
         fun cont() =
           after(y10)
       } in
-        $initialize_object(y10, y6, cont)
+        $initialize_object(y10, cont)
   } in hole
   
   none :: () -> @cval

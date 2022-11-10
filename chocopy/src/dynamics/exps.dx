@@ -103,12 +103,11 @@ rules
   compileExp(Call(Member(member, prop), args)) = {
     mem <- compileExp(member)
     assertNotNone(mem)
-    
-    vtable <- #struct-read(mem, symbol('"$vtable"))
-    fn <- #record-read(vtable, str(prop))
+    frame <- resolveFrame(mem, path(prop))
+    fn <- #struct-read(frame, symbol(prop))
     
     argv <- compileExpsBoxing(args)
-    fn@([mem] ++ argv ++ [return, $raise])
+    fn@(argv ++ [return, $raise])
   } label return/1:
   
   compileExp(Negative(a)) = {

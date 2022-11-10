@@ -52,8 +52,8 @@ rules
     frame <- #struct-new<frameT>()
     classConstructors()
     with $frame = frame, $frameT = frameT, $raise = var('"$err_unhandledexn"), $return = var('"$dummy_toplevelreturn") do {
-      compileNonFunDefs(defs)
       fundefs <- compileFunDefs(defs)
+      compileNonFunDefs(defs)
       fix { fundefs }
       compileStmts(stmts)
     }

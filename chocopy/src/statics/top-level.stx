@@ -119,7 +119,8 @@ rules // classes
   	actuallyReturns(0, stmts) == x,
   	noneReturnOk(RT, x) | error $[Every path in function [id] needs a return statement],
   	@f.vars := resolveVars(s),
-  	@f.funs := resolveFuns(s).
+  	@f.funs := resolveFuns(s),
+  	resolveMemberPath(cs, id, _, FUN(RT, ATs)).
   	
   initOk("__init__", [H | T]) :- 
   	false | error $[Constructor only takes 1 parameter: self].

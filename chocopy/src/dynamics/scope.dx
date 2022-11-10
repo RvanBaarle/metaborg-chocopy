@@ -31,6 +31,8 @@ rules
   compileType(INT()) = int
   compileType(STRING()) = string
   compileType(BOOL()) = int
+  compileType(OBJECT()) = typevar('"object")
+  compileType(CLASS(_, x)) = *
   compileType(_) = *
 
   resolveFrame :: @cval * List('Path) -> Pluggable(@cval)
