@@ -64,7 +64,7 @@ rules
   compileExp(List(a)) = {
     av <- compileExpsBoxing(a)
     arr <- #array-new(av)
-    lst <- #struct-new<typevar('"box")>()
+    lst <- #struct-new<typevar('"object")>()
     #struct-write(lst, symbol('"$type"), str('"List"))
     #struct-write(lst, symbol('"value"), arr)
     lst
@@ -132,7 +132,7 @@ rules
     aiv <- #struct-read<array<any>>(av, symbol('"value"))
     biv <- #struct-read<array<any>>(bv, symbol('"value"))
     conc <- #array-concat(aiv, biv)
-    lst <- #struct-new<typevar('"box")>()
+    lst <- #struct-new<typevar('"object")>()
     #struct-write(lst, symbol('"$type"), str('"List"))
     #struct-write(lst, symbol('"value"), conc)
     lst

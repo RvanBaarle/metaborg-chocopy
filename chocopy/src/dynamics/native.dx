@@ -86,7 +86,7 @@ rules
         after(len)
       else
         if #str-eq(ty, "str") then
-          #struct-read<array<any>>(val, !value) => strval;
+          #struct-read<string>(val, !value) => strval;
           #str-length(strval) => len;
           after(len)
         else
