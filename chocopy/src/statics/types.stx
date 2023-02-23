@@ -12,11 +12,11 @@ signature
 	BOOL		: TYPE
 	LIST		: TYPE -> TYPE
 	STRING		: TYPE
-	OBJECT		: TYPE
 	FUN			: TYPE * list(TYPE) -> TYPE
 	NONETYPE	: TYPE
 	EMPTY		: TYPE		
 	ITERABLE	: TYPE
+	ANY         : TYPE
 	INTBOOLSTR	: TYPE
 	
 	GLOBAL      : ACCESS
@@ -27,14 +27,14 @@ rules // interface
 
   typeOk				: scope * Type -> TYPE
   typesOk				  maps typeOk(*, list(*)) = list(*)
-  isSubtype				: TYPE * TYPE
-  areSubtypes 			: list(TYPE) * list(TYPE)
-  areSubtypesBoxing     : list(Exp) * list(TYPE) * list(TYPE)
-  leastUpperBound 		: TYPE * TYPE -> TYPE
-  leastUpperBounds 		: list(TYPE) -> TYPE
+  isSubtype				: scope * TYPE * TYPE
+  areSubtypes 			: scope * list(TYPE) * list(TYPE)
+  areSubtypesBoxing     : scope * list(Exp) * list(TYPE) * list(TYPE)
+  leastUpperBound 		: scope * TYPE * TYPE -> TYPE
+  leastUpperBounds 		: scope * list(TYPE) -> TYPE
   classSubtype 			: scope * scope -> int
   typeList 				: list((path * (scope))) -> int 
-  classLUB 				: int * int * TYPE * TYPE -> TYPE
+  classLUB 				: scope * int * int * TYPE * TYPE -> TYPE
   notFunctionOrClass 	: TYPE
   listOrString 			: TYPE -> TYPE
   boxIfNeeded           : astId * TYPE * TYPE
@@ -49,32 +49,31 @@ rules
   typeOk(s, x@Type("int"))    = INT()         :- @x.type := INT().
   typeOk(s, x@Type("bool"))   = BOOL()        :- @x.type := BOOL().
   typeOk(s, x@Type("str")) 	  = STRING()      :- @x.type := STRING().
-  typeOk(s, x@Type("object")) = OBJECT()      :- @x.type := OBJECT().
   typeOk(s, x@ListType(t)) 	  = LIST(T)       :- @x.type := LIST(T), typeOk(s, t) == T.
   typeOk(s, x@Type(id)) 		  = CLASS(s', id) :- @x.type := CLASS(s', id), resolveClass(s, id) == (s', _).
   typeOk(s, x@TypeS(IdString(id))) = T :-
     typeOk(s, Type(id)) == T,
     @x.type := T.
   
-  isSubtype(DT, AT) :- leastUpperBound(DT, AT) == DT.  
-  isSubtype(ITERABLE(), LIST(_)).
-  isSubtype(ITERABLE(), STRING()).
-  isSubtype(ITERABLE(), EMPTY()).
-  isSubtype(LIST(T),    LIST(NONETYPE())) :- isSubtype(T, NONETYPE()).
+  isSubtype(s, DT, AT) :- leastUpperBound(s, DT, AT) == DT.  
+  isSubtype(s, ITERABLE(), LIST(_)).
+  isSubtype(s, ITERABLE(), STRING()).
+  isSubtype(s, ITERABLE(), EMPTY()).
+  isSubtype(s, LIST(T),    LIST(NONETYPE())) :- isSubtype(s, T, NONETYPE()).
   
-  isSubtype(FUN(_, _), _) :- false.
-  isSubtype(_, FUN(_, _)) :- false.
+  isSubtype(s, FUN(_, _), _) :- false.
+  isSubtype(s, _, FUN(_, _)) :- false.
   
-  areSubtypes([], []).
-  areSubtypes([h1 | t1], [h2 | t2]) :-
-  	isSubtype(h1, h2),
-  	areSubtypes(t1, t2).
+  areSubtypes(s, [], []).
+  areSubtypes(s, [h1 | t1], [h2 | t2]) :-
+  	isSubtype(s, h1, h2),
+  	areSubtypes(s, t1, t2).
   	
-  areSubtypesBoxing([], [], []).
-  areSubtypesBoxing([e | t], [h1 | t1], [h2 | t2]) :-
-    isSubtype(h1, h2),
+  areSubtypesBoxing(s, [], [], []).
+  areSubtypesBoxing(s, [e | t], [h1 | t1], [h2 | t2]) :-
+    isSubtype(s, h1, h2),
     boxExpIfNeeded(e, h2, h1),
-    areSubtypesBoxing(t, t1, t2).
+    areSubtypesBoxing(s, t, t1, t2).
 
   classSubtype(p, c) = i :- {l}
   	query () filter I I* and { s :- s == p } min $ < I  in c |-> l,
@@ -83,55 +82,74 @@ rules
   typeList([]) = 0.
   typeList(_)  = 1.
   
-  leastUpperBound(T, T) = T.
-  leastUpperBound(_, _) = OBJECT().
-  leastUpperBound(CLASS(s, id), CLASS(s, id)) = CLASS(s, id).
+  leastUpperBound(s, T, T) = T.
+  leastUpperBound(s, _, _) = CLASS(s_obj, "object") :-
+    query class
+      filter P* I* and eq("object")
+        min $ < I, $ < P and true
+          in s |-> [(_, (_, (s_obj, _)))].
+  leastUpperBound(_, CLASS(s, id), CLASS(s, id)) = CLASS(s, id).
   
-  leastUpperBound(P@CLASS(p, id1), C@CLASS(c, id2)) = T :- {i j}
+  leastUpperBound(s, P@CLASS(p, id1), C@CLASS(c, id2)) = T :- {i j}
   	classSubtype(p, c) == i,
   	classSubtype(c, p) == j,
-  	classLUB(i, j, P, C) == T.
+  	classLUB(s, i, j, P, C) == T.
   	
-  classLUB(0, 0, _, _) = OBJECT().
-  classLUB(1, 0, P, _) = P.
-  classLUB(0, 1, _, C) = C.
+  classLUB(s, 0, 0, _, _) = CLASS(s_obj, "object") :-
+    query class
+      filter P* I* and {x :- x == "object"}
+        min $ < I, $ < P and true
+          in s |-> [(_, (_, (s_obj, _)))].
+  classLUB(s, 1, 0, P, _) = P.
+  classLUB(s, 0, 1, _, C) = C.
 
-  leastUpperBound(CLASS(c, id), NONETYPE())   = CLASS(c, id).
-  leastUpperBound(EMPTY(), 		NONETYPE())   = EMPTY().
-  leastUpperBound(LIST(t), 		NONETYPE())   = LIST(t).
-  leastUpperBound(NONETYPE(), 	CLASS(c, id)) = CLASS(c, id).
-  leastUpperBound(NONETYPE(), 	EMPTY())      = EMPTY().
-  leastUpperBound(NONETYPE(), 	LIST(t))      = LIST(t).
+  leastUpperBound(s, CLASS(c, id), NONETYPE())   = CLASS(c, id).
+  leastUpperBound(s, EMPTY(), 		NONETYPE())   = EMPTY().
+  leastUpperBound(s, LIST(t), 		NONETYPE())   = LIST(t).
+  leastUpperBound(s, NONETYPE(), 	CLASS(c, id)) = CLASS(c, id).
+  leastUpperBound(s, NONETYPE(), 	EMPTY())      = EMPTY().
+  leastUpperBound(s, NONETYPE(), 	LIST(t))      = LIST(t).
 
-  leastUpperBound(LIST(t), EMPTY()) = LIST(t).
-  leastUpperBound(EMPTY(), LIST(t)) = LIST(t).
+  leastUpperBound(s, LIST(t), EMPTY()) = LIST(t).
+  leastUpperBound(s, EMPTY(), LIST(t)) = LIST(t).
   
-  leastUpperBounds([T1, T2]) = T :- 
-  	leastUpperBound(T1, T2) == T.
+  leastUpperBounds(s, [T1, T2]) = T :- 
+  	leastUpperBound(s, T1, T2) == T.
   	
-  leastUpperBounds([T1, T2 | t]) = T :- {Temp}
-  	leastUpperBound(T1, T2) == Temp,
-  	leastUpperBounds([Temp | t]) == T.
+  leastUpperBounds(s, [T1, T2 | t]) = T :- {Temp}
+  	leastUpperBound(s, T1, T2) == Temp,
+  	leastUpperBounds(s, [Temp | t]) == T.
   	
   listOrString(LIST(T))  = T.
   listOrString(STRING()) = STRING().
   
-  boxIfNeeded(x, INT(), OBJECT()) :- @x.box += "int".
-  boxIfNeeded(x, BOOL(), OBJECT()) :- @x.box += "bool".
-  boxIfNeeded(x, STRING(), OBJECT()) :- @x.box += "str".
-  boxIfNeeded(x, CLASS(s1, _), OBJECT()) :- {p}
+  boxIfNeeded(x, INT(), CLASS(_, "object")) :- @x.box += "int".
+  boxIfNeeded(x, BOOL(), CLASS(_, "object")) :- @x.box += "bool".
+  boxIfNeeded(x, STRING(), CLASS(_, "object")) :- @x.box += "str".
+  boxIfNeeded(x, LIST(_), CLASS(_, "object")) :- @x.box += "list".
+  boxIfNeeded(x, CLASS(_, "object"), CLASS(_, "object")).
+  boxIfNeeded(x, CLASS(s1, _), CLASS(_, "object")) :- {p s2}
+    query class
+      filter P* I* and eq("object")
+        min $ < I, $ < P and true
+          in s1 |-> [(_, (_, (s2, _)))],
     query ()
-      filter I* and true
-        min I < $ and true
+      filter I* and eq(s2)
+        min $ < I and true
           in s1 |-> [(p, _)],
-    @x.path := _PathStep(p, _, _).
+    @x.box += "class",
+    @x.scope := s1,
+    @x.path := p.
   boxIfNeeded(x, CLASS(s1, _), CLASS(s2, _)) :- {p}
     query ()
       filter I* and eq(s2)
         min $ < I and true
           in s1 |-> [(p, _)],
+    @x.box += "class",
+    @x.scope := s1,
     @x.path := p.
   boxIfNeeded(x, _, _) :- @x.box += "other".
+  boxIfNeeded(x, T, T).
   
   // need to special case injections, since their annotations disappear after implication
   // see https://github.com/metaborg/nabl/issues/98 for background/discussion

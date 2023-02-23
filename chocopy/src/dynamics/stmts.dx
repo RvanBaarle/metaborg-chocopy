@@ -1,12 +1,12 @@
-module dynamics/stmts
+module stmts
 
 imports
-  dynamics/stdlib
-  dynamics/native
-  dynamics/scope
+  stdlib
+  native
+  scope
   
-  dynamics/exps
-  dynamics/main
+  exps
+  main
   
   signatures/Statement-sig
   
@@ -34,31 +34,26 @@ rules
   
   compileAssign :: 'Target * @cval -> Pluggable
   compileAssign(t@Var(x), v) = {
-    v_resolved <- resolveFrame(v, path(t))
-    possiblyBoxed <- compileExpBoxingHelper(box(t), v_resolved)
-    frame <- resolveFrame($frame, path(x))
-    #struct-write(frame, symbol(x), possiblyBoxed)
+    possiblyBoxed <- compileExpBoxingHelper(box(t), t, v)
+    write-var!(x, possiblyBoxed)
   }
   compileAssign(t@Index(x, y), v) = {
-    v_resolved <- resolveFrame(v, path(t))
-    possiblyBoxed <- compileExpBoxingHelper(box(t), v_resolved)
+    possiblyBoxed <- compileExpBoxingHelper(box(t), t, v)
     tgt <- compileExp(x)
     idx <- compileExp(y)
     assertNotNone(tgt)
-    arrayval <- #struct-read<array<any>>(tgt, symbol('"value"))
-    assertArrayWithinBounds(arrayval, idx)
-    #array-write(arrayval, idx, possiblyBoxed)
+    assertArrayWithinBounds(tgt, idx)
+    #array-write(tgt, idx, possiblyBoxed)
   }
   compileAssign(t@Member(x, y), v) = {
-    v_resolved <- resolveFrame(v, path(t))
-    possiblyBoxed <- compileExpBoxingHelper(box(t), v_resolved)
+    possiblyBoxed <- compileExpBoxingHelper(box(t), t, v)
     tgt <- compileExp(x)
     assertNotNone(tgt)
-    frame <- resolveFrame(tgt, path(y))
-    #struct-write(frame, symbol(y), possiblyBoxed)
+    use-scope!(t, tgt)
+    write-var!(y, possiblyBoxed)
   }
   
-  compileStmt(ReturnNone()) = $return@([none()])
+  compileStmt(ReturnNone()) = $return@([null])
   compileStmt(Return(a)) = {
     v <- compileExpBoxing(a)
     $return@([v])
@@ -108,19 +103,17 @@ rules
   compileFor([LIST(_)|_], For(a, b, c)) = { // array
     bv <- compileExp(b)
     assertNotNone(bv)
-    barr <- #struct-read<array<any>>(bv, symbol('"value"))
-    len <- #array-length(barr)
+    len <- #array-length(bv)
     
     body <- fresh-var(body)
     i <- fresh-var(i)
-    frame <- resolveFrame($frame, path(a))
     
     fix {
       fun body([i]) = if #int-eq(i, len) then {
         after@([])
       } else {
-        arrv <- #array-read(barr, i)
-        #struct-write(frame, symbol(a), arrv)
+        arrv <- #array-read(bv, i)
+        write-var!(a, arrv)
         compileBlock(c)
         ii <- #int-add(i, int('1))
         body@([ii])
@@ -135,14 +128,13 @@ rules
     
     body <- fresh-var(body)
     i <- fresh-var(i)
-    frame <- resolveFrame($frame, path(a))
     
     fix {
       fun body([i]) = if #int-eq(i, len) then {
         after@([])
       } else {
         strv <- #str-index(bv, i)
-        #struct-write(frame, symbol(a), strv)
+        write-var!(a, strv)
         compileBlock(c)
         ii <- #int-add(i, int('1))
         body@([ii])

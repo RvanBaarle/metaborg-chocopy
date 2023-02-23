@@ -1,136 +1,163 @@
-module dynamics/native
+module native
 
 imports
-  dynamics/stdlib
+  stdlib
+  main
 
 rules
-  builtins :: () -> Pluggable
-  builtins() = @
-  typedef {
-    object = {$type: string, value: any, __init__: function<function<object>, function<object>>}
-  } in
-  #struct-new<object>() => $NONE;
-  #struct-write($NONE, !$type, "None") => _;
-  #array-new() => $emptylistcontents;
-  #struct-new<object>() => $emptylist;
-  #struct-write($emptylist, !$type, "List") => _;
-  #struct-write($emptylist, !value, $emptylistcontents) => _;
-  fix {
-    fun $err_oob() =
-      #print("Index out of bounds") => tmp0;
-      #print("Exited with error code 3") => tmp1;
-      #exit()
-    fun $err_div0() =
-      #print("Division by zero") => tmp0;
-      #print("Exited with error code 2") => tmp1;
-      #exit()
-    fun $err_invalidarg() =
-      #print("Invalid argument") => tmp0;
-      #print("Exited with error code 1") => tmp1;
-      #exit()
-    fun $err_unhandledexn<object>(a) =
-      #print("Unhandled exception") => tmp0;
-      #exit()
-  
-    fun $fn_print<object, function<object>, function<object>>(v, c, _) =
-      #struct-read(v, !$type) => type;
-      if #str-eq(type, "None") then
-        $err_invalidarg()
-      else
-        if #str-eq(type, "int") then
-          #struct-read(v, !value) => intv;
-          #print<int>(intv) => tmp0;
-          c($NONE)
-        else
-          if #str-eq(type, "str") then
-            #struct-read(v, !value) => strv;
-            #print<string>(strv) => tmp0;
-            c($NONE)
-          else
-            if #str-eq(type, "bool") then
-              #struct-read(v, !value) => boolv;
-              if #int-eq(boolv, 1) then
-                #print("True") => tmp0;
-                c($NONE)
-              else
-                #print("False") => tmp0;
-                c($NONE)
-            else
-              $err_invalidarg()
-    fun $mod(a, b, after) =
-      #int-div(a, b) => full_parts;
-      #int-mul(full_parts, b) => full;
-      #int-sub(a, full) => mod;
-      after(mod)
-    fun $assert_not_none<object, function<>>(val, after) =
-      #struct-read(val, !$type) => ty;
-      if #str-eq(ty, "None") then
-        #print("Operation on None") => tmp0;
-        #print("Exited with error code 4") => tmp1;
+  builtins :: @cval -> Pluggable
+  builtins(frame) = {
+    pyint <- fresh-var(pyint)
+    pybool <- fresh-var(pybool)
+    pystr <- fresh-var(pystr)
+    object <- var('"$fn_object")
+    len <- fresh-var(len)
+    print <- fresh-var(print)
+    arg <- fresh-var(arg)
+    cont <- fresh-var(cont)
+    throw <- fresh-var(throw)
+    
+    fix {
+      fun var('"$err_oob")([]) = {
+        #print(str('"Index out of bounds"))
+        #print(str('"Exited with error code 3\n"))
         #exit()
-      else
-        after()
-    fun $assert_within_bounds(len, idx, after) =
-      if #int-lt(idx, 0) then
-        $err_oob()
-      else
-        if #int-geq(idx, len) then
-          $err_oob()
-        else
-          after()
-    fun $fn_len<object, function<int>, function<object>>(val, after, _) =
-      #struct-read(val, !$type) => ty;
-      if #str-eq(ty, "List") then
-        #struct-read<array<any>>(val, !value) => arval;
-        #array-length(arval) => len;
-        after(len)
-      else
-        if #str-eq(ty, "str") then
-          #struct-read<string>(val, !value) => strval;
-          #str-length(strval) => len;
-          after(len)
-        else
-          $err_invalidarg()
-    fun $object__init__<function<object>, function<object>>(cont, _) = cont($NONE)
-    fun $initialize_object<object, function<>>(self, cont) = 
-      #struct-write(self, !__init__, $object__init__) => tmp0;
-      cont()
-  } in hole
-  
-  classConstructors :: () -> Pluggable
-  classConstructors() = @fix {
-    fun $fn_int(after, _) = after(0)
-    fun $fn_bool(after, _) = after(0)
-    fun $fn_str(after, _) = after("")
-    fun $fn_object<function<object>, function<object>>(after, exn) =
-      #struct-new<object>( ) => y10;
-      #struct-write(y10, !$type, "object") => _;
-      fix {
-        fun cont() =
-          after(y10)
-      } in
-        $initialize_object(y10, cont)
-  } in hole
-  
-  none :: () -> @cval
-  none() = var('"$NONE")
+      }
+      fun var('"$err_div0")([]) = {
+        #print(str('"Division by zero\n"))
+        #print(str('"Exited with error code 2\n"))
+        #exit()
+      }
+      fun var('"$err_invalidarg")([]) = {
+        #print(str('"Invalid argument\n"))
+        #print(str('"Exited with error code 1\n"))
+        #exit()
+      }
+      fun var('"$err_unhandledexn")([fresh-var(a)]) = {
+        #print(str('"Unhandled exception\n"))
+        #exit()
+      }
+      fun var('"$err_none")([]) = {
+        #print(str('"Operation on None\n"))
+        #print(str('"Exited with error code 4\n"))
+        #exit()
+      }
+    }
+    fix {
+      fun pyint([cont, throw]) = cont@([int('0)])
+      fun pybool([cont, throw]) = cont@([int('0)])
+      fun pystr([cont, throw]) = cont@([str('"")])
+      fun object([cont, throw]) = {
+        obj <- create-scope!($object, ['"statics/decls!member"])
+        init <- fresh-var(init)
+        cont2 <- fresh-var(cont)
+        throw2 <- fresh-var(throw)
+        fix {
+          fun init([cont2, throw2]) = {
+             cont2@([null])
+          }
+        }
+        #struct-write(obj, symbol('"__type__"), str('"object"))
+        #struct-write(obj, symbol('"__init__"), init)
+        {
+          init@([ret, throw])
+        } label ret/1:
+        cont@([obj])
+      }
+      fun len([arg, cont, throw]) = {
+        type <- #struct-read(arg, symbol('"__type__"))
+        if #str-eq(type, str('"list")) then {
+          val <- #struct-read<array<any>>(arg, symbol('"__value__"))
+          if #is-null(val) then {
+            var('"$err_none")@([])
+          } else {
+            length <- #array-length(val)
+            cont@([length])
+          }
+        } else {
+          if #str-eq(type, str('"str")) then {
+            val2 <- #struct-read<string>(arg, symbol('"__value__"))
+            length2 <- #str-length(val2) 
+            cont@([length2])
+          } else {
+            var('"$err_invalidarg")@([])
+          }
+        }
+      }
+      fun print([arg, cont, throw]) = {
+        type <- #struct-read(arg, symbol('"__type__"))
+        if #str-eq(type, str('"int")) then {
+          val <- #struct-read<int>(arg, symbol('"__value__"))
+          #print(val)
+          #print(str('"\n"))
+          cont@([null])
+        } else {
+          if #str-eq(type, str('"str")) then {
+            val2 <- #struct-read<string>(arg, symbol('"__value__"))
+            #print(val2)
+            #print(str('"\n"))
+            cont@([null])
+          } else {
+            if #str-eq(type, str('"bool")) then {
+              val3 <- #struct-read<int>(arg, symbol('"__value__"))
+              if #int-neq(val3, int('0)) then {
+                #print(str('"True\n"))
+                cont@([null])
+              } else {
+                #print(str('"False\n"))
+                cont@([null])
+              }
+            } else {
+              var('"$err_invalidarg")@([])
+            }
+          }
+        }
+      }
+    }
+    
+    #struct-write(frame, symbol('"int"), pyint)
+    #struct-write(frame, symbol('"bool"), pybool)
+    #struct-write(frame, symbol('"str"), pystr)
+    #struct-write(frame, symbol('"object"), object)
+    #struct-write(frame, symbol('"len"), len)
+    #struct-write(frame, symbol('"print"), print)
+  }
   
   assertNotNone :: @cval -> Pluggable
-//  assertNotNone(v) = {
-//    var('"$assert_not_none")@([v, after])
-//  } label after/0:
-  assertNotNone(v) = hole  // TODO: bring back None
+  assertNotNone(v) =  {
+    if #is-null(v) then {
+      var('"$err_none")@([])
+    } else {
+      after@([])
+    }
+  } label after/0:
   
   assertArrayWithinBounds :: @cval * @cval -> Pluggable
   assertArrayWithinBounds(arr, idx) = {
     len <- #array-length(arr)
-    var('"$assert_within_bounds")@([len, idx, after])
+    if #int-lt(idx, int('0)) then {
+      var('"$err_oob")@([])
+    } else {
+      if #int-geq(idx, len) then {
+        var('"$err_oob")@([])
+      } else {
+        after@([])
+      }
+    }
   } label after/0:
   
   assertStringWithinBounds :: @cval * @cval -> Pluggable
   assertStringWithinBounds(s, idx) = {
     len <- #str-length(s)
-    var('"$assert_within_bounds")@([len, idx, after])
+    if #int-lt(idx, int('0)) then {
+      var('"$err_oob")@([])
+    } else {
+      if #int-geq(idx, len) then {
+        var('"$err_oob")@([])
+      } else {
+        after@([])
+      }
+    }
   } label after/0:
   
   assertDivNotZero :: @cval -> Pluggable
@@ -144,38 +171,40 @@ rules
   
   mod :: @cval * @cval -> Pluggable(@cval)
   mod(a, b) = {
-    var('"$mod")@([a, b, after])
-  } label after/1:
+    full_parts <- #int-div(a, b)
+    full <- #int-mul(full_parts, b)
+    #int-sub(a, full)
+  }
   
 rules
   boxInt :: @cval -> Pluggable(@cval)
   boxInt(v) = {
-    struct <- #struct-new<typevar('"object")>()
-    #struct-write(struct, symbol('"$type"), str('"int"))
-    #struct-write(struct, symbol('"value"), v)
+    struct <- {var('"$fn_object")@([cont, $raise]) label cont/1: }
+    #struct-write(struct, symbol('"__type__"), str('"int"))
+    #struct-write(struct, symbol('"__value__"), v)
     struct
   }
   
   boxString :: @cval -> Pluggable(@cval)
   boxString(v) = {
-    struct <- #struct-new<typevar('"object")>()
-    #struct-write(struct, symbol('"$type"), str('"str"))
-    #struct-write(struct, symbol('"value"), v)
+    struct <- {var('"$fn_object")@([cont, $raise]) label cont/1: }
+    #struct-write(struct, symbol('"__type__"), str('"str"))
+    #struct-write(struct, symbol('"__value__"), v)
     struct
   }
   
   boxBool :: @cval -> Pluggable(@cval)
   boxBool(v) = {
-    struct <- #struct-new<typevar('"object")>()
-    #struct-write(struct, symbol('"$type"), str('"bool"))
-    #struct-write(struct, symbol('"value"), v)
+    struct <- {var('"$fn_object")@([cont, $raise]) label cont/1: }
+    #struct-write(struct, symbol('"__type__"), str('"bool"))
+    #struct-write(struct, symbol('"__value__"), v)
     struct
   }
   
-  boxAny :: @cval -> Pluggable(@cval)
-  boxAny(v) = {
-    struct <- #struct-new<typevar('"object")>()
-    #struct-write(struct, symbol('"$type"), str('"object"))
-    #struct-write(struct, symbol('"value"), v)
+  boxList :: @cval -> Pluggable(@cval)
+  boxList(v) = {
+    struct <- {var('"$fn_object")@([cont, $raise]) label cont/1: }
+    #struct-write(struct, symbol('"__type__"), str('"list"))
+    #struct-write(struct, symbol('"__value__"), v)
     struct
   }

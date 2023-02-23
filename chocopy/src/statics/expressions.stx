@@ -13,7 +13,7 @@ rules
   literalOk			: Literal -> TYPE
   equalityOk 		: TYPE
   isOk 				: TYPE * TYPE
-  addOk 			: TYPE * TYPE -> TYPE
+  addOk 			: scope * TYPE * TYPE -> TYPE
   
   validInit			: ID * TYPE
   
@@ -42,7 +42,7 @@ rules
   	expOk(s, e1) == T1,
   	expOk(s, e2) == T2,
   	expOk(s, c1) == BOOL(),
-  	leastUpperBound(T1, T2) == LUB,
+  	leastUpperBound(s, T1, T2) == LUB,
   	boxExpIfNeeded(e1, T1, LUB),
   	boxExpIfNeeded(e2, T2, LUB).
   	
@@ -78,7 +78,7 @@ rules
   expOk(s, e@Add(e1, e2)) = T :- {A B} @e.type += T,
   	expOk(s, e1) == A,
   	expOk(s, e2) == B,
-  	addOk(A, B) == T.
+  	addOk(s, A, B) == T.
   	
   expOk(s, e@Sub(e1, e2)) = T@INT() :- @e.type += T,
   	expOk(s, e1) == INT(),
@@ -99,7 +99,7 @@ rules
   expOk(s, t@List(l)) = LT@LIST(T) :- {Ts} @t.type += LT,
   	expsOk(s, l) == Ts,
   	boxExpsIfNeeded(l, Ts, T),
-  	leastUpperBounds(Ts) == T.
+  	leastUpperBounds(s, Ts) == T.
   	
   expOk(s, Var2Exp(e@Var(id))) = T :- {o} @e.type += T,
   	resolveVar(s, id) == (T, _, o).
@@ -107,20 +107,21 @@ rules
   expOk(s, e@Call(Var2Exp(v@Var(id)), Exps2Parameters(params))) = T :- {Ps Ts} @e.type += T, @v.type += FUN(T, Ts),
   	resolveFun(s, id) == FUN(T, Ts),
   	expsOk(s, params) == Ps,
-  	areSubtypesBoxing(params, Ts, Ps) | error $[Paremeter types do not match. Expected [Ts], got [Ps]]@params.
+  	areSubtypesBoxing(s, params, Ts, Ps) | error $[Paremeter types do not match. Expected [Ts], got [Ps]]@params.
   	
   expOk(s, c@Call(Member2Exp(m@Member(e, id)), Exps2Parameters(params))) = T :- {Ps Ts cs M} @c.type += T, @m.type += M,
   	expOk(s, e) == CLASS(cs, _),
   	resolveMember(cs, id) == M,
-  	M == FUN(T, [_ | Ts]),
+  	M == FUN(T, Ts),
   	expsOk(s, params) == Ps,
-  	areSubtypesBoxing(params, Ts, Ps).
+  	areSubtypesBoxing(s, params, Ts, Ps),
+  	@m.scope := cs.
   	
-  expOk(s, c@Call(Member2Exp(m@Member(e, x@"__init__")), Exps2Parameters([]))) = NONETYPE() :- {T} 
-  	T == expOk(s, e),
-  	boxExpIfNeeded(e, T, OBJECT()),
-  	validInit(x, T) | error $[__init__ not allowed on non-class type [T]],
-    @c.type += NONETYPE(), @m.type += FUN(NONETYPE(), [T]).
+//  expOk(s, c@Call(Member2Exp(m@Member(e, x@"__init__")), Exps2Parameters([]))) = NONETYPE() :- {T} 
+//  	T == expOk(s, e),
+//  	boxExpIfNeeded(e, T, CLASS(_, "object")),
+//  	validInit(x, T) | error $[__init__ not allowed on non-class type [T]],
+//    @c.type += NONETYPE(), @m.type += FUN(NONETYPE(), [T]).
     
   validInit(x, CLASS(s, _)) :-
     resolveMemberPath(s, x, _, FUN(_, _)).
@@ -132,17 +133,18 @@ rules
   expOk(s, Member2Exp(m@Member(e, id))) = T :- {cs} @m.type += T,
   	expOk(s, e) == CLASS(cs, _),
   	resolveMember(cs, id) == T,
-  	notFunctionOrClass(T) | error $[Functions are not first-class citizens].
+  	notFunctionOrClass(T) | error $[Functions are not first-class citizens],
+  	@m.scope := cs.
   	
    expOk(s, Index2Exp(i@Index(e, in))) = T :- {L} @i.type += T,
   	expOk(s, e) == L,
   	listOrString(L) == T,
   	expOk(s, in) == INT().
   	
-  addOk(INT(), INT()) = INT().
-  addOk(STRING(), STRING()) = STRING().
-  addOk(LIST(A), LIST(B)) = LIST(T) :-
-  	T == leastUpperBound(A, B).
+  addOk(s, INT(), INT()) = INT().
+  addOk(s, STRING(), STRING()) = STRING().
+  addOk(s, LIST(A), LIST(B)) = LIST(T) :-
+  	T == leastUpperBound(s, A, B).
   	
   equalityOk(BOOL()).
   equalityOk(INT()).

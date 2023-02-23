@@ -33,7 +33,7 @@ rules
     try { T == CLASS(_, _) } | error $[Can only raise custom class instances.].
 
   stmtOk(s, _, r@ReturnNone(), T) :- @r.type += NONETYPE(),
-  	isSubtype(T, NONETYPE()).
+  	isSubtype(s, T, NONETYPE()).
   	
   stmtOk(s, i, Try(Block(body), excepts, finally), RT) :-
     stmtsOk(s, i, body, RT),
@@ -59,7 +59,7 @@ rules
   stmtOk(s, _, r@Return(e), RT) :- {T} @r.type += RT,
   	expOk(s, e) == T,
   	boxExpIfNeeded(e, T, RT),
-  	isSubtype(RT, T).
+  	isSubtype(s, RT, T).
   	
   stmtOk(s, _, PassStmt(), _).
   
@@ -79,18 +79,18 @@ rules
   
   assignOk(s, Target(Var2Target(v@Var(id))), ST) :- {T s'} @v.type += T,
   	resolveLocalVar(s, id) == (T, s', _) | error $[Cannot assign to variable that is not explicitly defined in this scope],
-  	isSubtype(T, ST),
+  	isSubtype(s, T, ST),
   	boxIfNeeded(astId(v), ST, T).
   	
   assignOk(s, Target(Index2Target(t@Index(list, in))), ST) :- {T}
   	expOk(s, list) == LIST(T),
   	expOk(s, in) == INT(),
-  	isSubtype(T, ST),
+  	isSubtype(s, T, ST),
   	boxIfNeeded(astId(t), ST, T).
   	
   assignOk(s, Target(Member2Target(m)), ST) :- {T}
   	expOk(s, Member2Exp(m)) == T,
-  	isSubtype(T, ST),
+  	isSubtype(s, T, ST),
   	boxIfNeeded(astId(m), ST, T).
 
   	
@@ -110,13 +110,13 @@ rules
 
   forOk(s, i, id, LIST(T), stmts, RT) :- {s' T'} @id.type += T',
   	resolveVar(s, id) == (T', s', _),
-  	isSubtype(T', T),
+  	isSubtype(s, T', T),
   	stmtsOk(s, i, stmts, RT),
   	try { s == s' } | error $[Cannot assign to variable that is not explicitly defined in this scope].
   	
  forOk(s, i, id, STRING(), stmts, RT) :- {s' T} @id.type += T,
  	resolveVar(s, id) == (T, s', _),
- 	isSubtype(T, STRING()),
+ 	isSubtype(s, T, STRING()),
   	stmtsOk(s, i, stmts, RT),
   	try { s == s' } | error $[Cannot assign to variable that is not explicitly defined in this scope].
   	

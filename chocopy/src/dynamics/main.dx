@@ -1,15 +1,15 @@
-module dynamics/main
+module main
 
 imports
   signatures/chocopy-sig
   
-  dynamics/stdlib
-  dynamics/native
+  stdlib
+  native
   
-  dynamics/defs
-  dynamics/exps
-  dynamics/stmts
-  dynamics/scope
+  defs
+  exps
+  stmts
+  scope
   
 // semantic types, correspond to the statix types
 signature
@@ -19,13 +19,13 @@ signature
     INT         : TYPE
     BOOL        : TYPE
     LIST        : TYPE -> TYPE
-    OBJECT      : TYPE
     FUN         : TYPE * List(TYPE) -> TYPE
     NONETYPE    : TYPE
     EMPTY       : TYPE      
     ITERABLE    : TYPE
     INTBOOLSTR  : TYPE
     STRING      : TYPE
+    ANY         : TYPE
   constructors
     STRINGLITERAL      : string -> STRINGLITERAL
   
@@ -39,22 +39,21 @@ constraint-analyzer
   property path :: 'Path
 
 rules
+  $object :: 'Stub
   $return :: @cval
   $raise :: @cval
-  $frame :: @cval
-  $frameT :: @ctype
 
   compileProgram :: 'Program -> Pluggable
   
-  compileProgram(p@Program(defs, stmts)) = {
-    builtins()
-    frameT <- compileFrameType(fresh-typevar(frame), vars(p), [])
-    frame <- #struct-new<frameT>()
-    classConstructors()
-    with $frame = frame, $frameT = frameT, $raise = var('"$err_unhandledexn"), $return = var('"$dummy_toplevelreturn") do {
-      fundefs <- compileFunDefs(defs)
+  compileProgram(p@Program(stub, defs, stmts)) = {
+    with $raise = var('"$err_unhandledexn"), $return = var('"$dummy_toplevelreturn"), $object = stub do {
+      frame <- create-scope!(p, ['"statics/decls!var"])
+      builtins(frame)
+      compileFunDefs(defs)
       compileNonFunDefs(defs)
-      fix { fundefs }
       compileStmts(stmts)
     }
   }
+  
+  compileFrameEntry :: ('ID * 'TYPE) -> @cstructmember
+  compileFrameEntry((x, t)) = x: compileType(t)

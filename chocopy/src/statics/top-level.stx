@@ -25,7 +25,7 @@ rules // interface
   funcOk			: scope * scope * scope * FuncDef
   varOk				: scope * VarDef -> TYPE
   
-  parentOk 			: scope * ID * int
+  parentOk 			: scope * scope * ID * int
   bodyOk 			: scope * scope * ClassBody * ID
   classBodyMemberOk 	: scope * scope * ClassBodyMember * ID
   classBodyMembersOk  maps classBodyMemberOk(*, *, list(*), *)
@@ -37,25 +37,29 @@ rules // interface
   retOk 			: scope * RetType -> TYPE
   initOk			: ID * list(TYPE)
   
-  noneReturnOk      : TYPE * int
+  noneReturnOk      : scope * TYPE * int
 
 rules // programOk
 
-  programOk(p@Program(defs, stmts)) :- {s}
+  programOk(p@Program(stub, defs, stmts)) :- {s obj_s}
   	new s,
-  	defsOk(s, defs, 0) == _,
+  	new obj_s,
+  	defsOk(s, defs, 1) == _,
   	stmtsOk(s, 0, stmts, NONETYPE()),
-  	
-  	declClassFun(s, "int", FUN(INT(), [])),
-  	declClassFun(s, "bool", FUN(BOOL(), [])),
-  	declClassFun(s, "str", FUN(STRING(), [])),
-  	declClassFun(s, "object", FUN(OBJECT(), [])) ,
-  	declClassFun(s, "len", FUN(INT(), [OBJECT()])),
-  	declClassFun(s, "print", FUN(NONETYPE(), [OBJECT()])),
-  	declClassFun(s, "input", FUN(STRING(), [])),
-  	@p.vars := resolveVars(s),
-  	@p.classes := resolveClasses(s),
-  	@p.funs := resolveFuns(s).
+
+  	!var["int", FUN(INT(), [])] in s,
+  	!var["bool", FUN(BOOL(), [])] in s,
+  	!var["str", FUN(STRING(), [])] in s,
+  	!var["object", FUN(CLASS(obj_s, "object"), [])] in s,
+  	!var["len", FUN(INT(), [CLASS(obj_s, "object")])] in s,
+  	!var["print", FUN(NONETYPE(), [CLASS(obj_s, "object")])] in s,
+  	!var["input", FUN(STRING(), [])] in s,
+  	!member["__type__", STRING()] in obj_s,
+  	!member["__value__", ANY()] in obj_s,
+  	!member["__init__", FUN(NONETYPE(), [])] in obj_s,
+  	!class["object", (obj_s, 0)] in s,
+  	@p.scope := s,
+  	@stub.scope := obj_s.
   	
 rules // definitions
 
@@ -81,19 +85,17 @@ rules // classes
   	new s', s'-P-> s,
   	declClass(s, s', id, i),
   	declClassFun(s, id, FUN(CLASS(s', id), [])),
-  	parentOk(s', parent, i),
+  	parentOk(s, s', parent, i),
   	bodyOk(s, s', body, id),
   	@c.members := resolveMembers(s'),
-  	@c.methods := resolveMemberFuns(s').
-  	  	
-
-  parentOk(_, "object", _).
+  	@c.methods := resolveMemberFuns(s'),
+  	@c.scope := s'.
   
-  parentOk(s, id, i) :- {is i'}
+  parentOk(s, s_c, id, i) :- {is i'}
   	resolveClass(s, id) == (is, i'),
-  	s -I-> is,
+  	s_c -I-> is,
  	i' #< i | error $[Class [id] is not yet defined],
-  	query () filter I* and { x :- x == s } min $ < I  in is |-> [] 
+  	query () filter I* and { x :- x == s_c } min $ < I  in is |-> [] 
   	    | error $[A class cannot extend itself or its subclass].
   	
   bodyOk(_, _, Pass2ClassBody(Pass()), _).
@@ -104,7 +106,7 @@ rules // classes
   classBodyMemberOk(gs, cs, VarDef2ClassBodyMember(VarDef(TypedVar(id, type), literal)), _) :- {T LT} @id.type := T,
   	typeOk(cs, type) == T,
   	literalOk(literal) == LT,
-  	isSubtype(T, LT),
+  	isSubtype(gs, T, LT),
   	declMember(cs, id, T).
   	
   classBodyMemberOk(gs, cs, FuncDef2ClassBodyMember(f@FuncDef(id, args, ret, FuncBody(defs, stmts))), cn) :- {RT ATs s t tail x} @id.type := FUN(RT, ATs),
@@ -112,23 +114,24 @@ rules // classes
   	retOk(cs, ret) == RT,
   	argsOk(cs, s, args) == ATs@[t | tail],
   	initOk(id, tail),
-  	declMember(cs, id, FUN(RT, ATs)),
+  	declMember(cs, id, FUN(RT, tail)),
   	funcBodyMembersOk(gs, cs, s, defs),
   	stmtsOk(s, 1, stmts, RT),
   	try { t == CLASS(cs, cn) } | error $[First argument of function [id] needs to be of the enclosing class],
   	actuallyReturns(0, stmts) == x,
-  	noneReturnOk(RT, x) | error $[Every path in function [id] needs a return statement],
+  	noneReturnOk(gs, RT, x) | error $[Every path in function [id] needs a return statement],
   	@f.vars := resolveVars(s),
   	@f.funs := resolveFuns(s),
+  	@f.scope := s,
   	resolveMemberPath(cs, id, _, FUN(RT, ATs)).
   	
   initOk("__init__", [H | T]) :- 
   	false | error $[Constructor only takes 1 parameter: self].
   initOk(_, _).
   	
-  noneReturnOk(T, 1).
+  noneReturnOk(s, T, 1).
   
-  noneReturnOk(T, 0) :- isSubtype(T, NONETYPE()).
+  noneReturnOk(s, T, 0) :- isSubtype(s, T, NONETYPE()).
   	
 rules // functions  	
 
@@ -139,9 +142,8 @@ rules // functions
   	funcBodyMembersOk(gs, us, s, defs),
   	stmtsOk(s, 1, stmts, RT),
   	actuallyReturns(0, stmts) == x,
-  	noneReturnOk(RT, x) | error $[Every path in function [id] needs a return statement],
-  	@f.vars := resolveVars(s),
-  	@f.funs := resolveFuns(s).
+  	noneReturnOk(gs, RT, x) | error $[Every path in function [id] needs a return statement],
+  	@f.scope := s.
   	
 
   funcBodyMemberOk(gs, us, s, Global(id)) :- {T s' o}
@@ -173,7 +175,7 @@ rules // functions
   varOk(s, VarDef(v@TypedVar(id, type), literal)) = T :- {LT} @id.type += T,
   	typeOk(s, type) == T,
   	literalOk(literal) == LT,
-  	isSubtype(T, LT),
+  	isSubtype(s, T, LT),
   	boxIfNeeded(astId(literal), LT, T),
   	declVar(s, id, T, id).
   	  	

@@ -38,7 +38,7 @@ rules
   scopeFromPath     : path -> scope
   
   overrideOk 		: scope * ID * TYPE
-  checkOverride 	: TYPE * ID * list((path * (ID * TYPE)))
+  checkOverride 	: scope * TYPE * ID * list((path * (ID * TYPE)))
   
 rules // declare class
 
@@ -51,23 +51,30 @@ rules // declare class
   	      in gs |-> [_] 
   	  | error $[Class [id] is defined more than once].
   
-  resolveClass(s, id) = (s', i') :- {id'} @id.ref := id',
+  resolveClass(s, id) = (s', i') :- {id' p} @id.ref := id',
   	query class
   	  filter P* and eq(id)
   	    min $ < P and true
   	      in s |-> [(_, (id', (s', i')))|_] 
-  	  | error $[Class [id] is not defined].
+  	  | error $[Class [id] is not defined],
+  	query var
+  	  filter P* and eq(id)
+  	    min $ < P and true
+  	      in s |-> [(p, _)|_],
+  	@id.scope := s',
+  	@id.path := p.
   
   declMember(s, id, t) :-
   	!member[id, t] in s,
   	overrideOk(s, id, t).
   
-  overrideOk(s, id, _) :- 
+  overrideOk(s, id, _) :- {p} 
   	query member
         filter I* and eq(id)
         min $ < I and false
-        in s |-> [(_, _)]         
-     | error $[Field [id] cannot be overwritten].
+        in s |-> [(p, _)]         
+     | error $[Field [id] cannot be overwritten],
+    @id.path := p.
         
   overrideOk(s, id, t@FUN(_, _)) :- {l}
     query member
@@ -79,40 +86,43 @@ rules // declare class
         filter I* and eq(id)
         min $ < I and false
         in s |-> l,
-  	checkOverride(t, id, l) 
-  	  | error $[Overriding function [id] does not have the same signature].
+  	checkOverride(s, t, id, l)
+  	  | error $[Overriding function [id] does not have the same signature ([t] vs [l])].
    
-  checkOverride(_, _, []).
+  checkOverride(s, _, _, []).
 
-  checkOverride(T@FUN(RT, [ST | ATs]), id, [(_, (id', FUN(RT, [AT | ATs]) )) | t]) :- @id.ref += id',
-  	isSubtype(AT, ST),
-  	checkOverride(T, id, t).
+  checkOverride(s, T@FUN(RT, ATs), id, [(_, (id', FUN(RT, ATs) )) | t]) :- @id.ref += id',
+  	checkOverride(s, T, id, t).
   	
-  declVar(s, id, t, o) :- 
+  declVar(s, id, t, o) :- {p}
   	declOk(s, id),
   	!var[id, t] in s,
   	!access[id, LOCAL()] in s,
   	query var
   	  filter P* and eq(id)
   	    min $ < P and true
-  	      in s |-> [_]
-  	  | error $[Name [id] is already defined in this scope].
+  	      in s |-> [(p, _)]
+  	  | error $[Name [id] is already defined in this scope],
+  	@id.path := p.
   	
-  declFun(s, id, t) :-
+  declFun(s, id, t) :- {p}
   	declOk(s, id),
   	!var[id, t] in s,
   	!access[id, LOCAL()] in s,
   	query var
   		filter e and eq(id)
   		  min and true
-  		    in s |-> [_].
+  		    in s |-> [(p, _)]
+  	  | error $[Name [id] is already defined in this scope],
+    @id.path := p.
   		
-  declClassFun(s, id, t) :-
+  declClassFun(s, id, t) :- {p}
   	!var[id, t] in s,
   	query var
   		filter e and eq(id)
   		  min and true
-  		    in s |-> [_].
+  		    in s |-> [(p, _)],
+    @id.path := p.
   		
   declOk(s, id)       :- query class filter P* and eq(id) min $ < P and true in s |-> [] | error $[Cannot shadow class [id]].  	
   declOk(_, "str")    :- false | error $[Cannot shadow class str].
@@ -189,13 +199,6 @@ rules // declare class
         min I < $ and true
           in s |-> [(p, _)|_],
   	@x.path := p.
-  
-  resolveMemberPath(s, x@"__init__", _, FUN(_, _)) :- {p}
-    query ()
-      filter I* and true
-        min I < $ and true
-          in s |-> [(p, _)|_],
-  	@x.path := _PathStep(p, _, _).
   	
   resolveFun(s, x) = T :- {x' p} @x.ref := x',
     query var

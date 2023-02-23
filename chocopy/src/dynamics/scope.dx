@@ -1,9 +1,9 @@
-module dynamics/scope
+module scope
 
 imports
   signatures/chocopy-sig
-  dynamics/main
-  dynamics/stdlib
+  main
+  stdlib
 
 signature
   sorts Path Label
@@ -14,40 +14,47 @@ signature
 
 rules
 
-  compileFrameType :: @ctype * List(('ID * 'TYPE)) * List(@cstructmember) -> Pluggable(@ctype)
-  compileFrameType(tvar, elems, extra) = {
-    typedef {
-      tvar = struct<compileFrameElements(elems) ++ extra>
-    }
-    tvar
-  }
-  
-  compileFrameElement :: ('ID * 'TYPE) -> @cstructmember
-  compileFrameElements :: List(('ID * 'TYPE)) -> List(@cstructmember)
-  compileFrameElements([h|t]) = [compileFrameElement(h)|compileFrameElements(t)]
-  compileFrameElements([]) = []
-  compileFrameElement((x, t)) = x : compileType(t)
+//  compileFrameType :: @ctype * List(('ID * 'TYPE)) * List(@cstructmember) -> Pluggable(@ctype)
+//  compileFrameType(tvar, elems, extra) = {
+//    typedef {
+//      tvar = struct<compileFrameElements(elems) ++ extra>
+//    }
+//    tvar
+//  }
+//  
+//  compileFrameElement :: ('ID * 'TYPE) -> @cstructmember
+//  compileFrameElements :: List(('ID * 'TYPE)) -> List(@cstructmember)
+//  compileFrameElements([h|t]) = [compileFrameElement(h)|compileFrameElements(t)]
+//  compileFrameElements([]) = []
+//  compileFrameElement((x, t)) = x : compileType(t)
+
   compileType :: 'TYPE -> @ctype
   compileType(INT()) = int
   compileType(STRING()) = string
   compileType(BOOL()) = int
-  compileType(OBJECT()) = typevar('"object")
-  compileType(CLASS(_, x)) = *
-  compileType(_) = *
-
-  resolveFrame :: @cval * List('Path) -> Pluggable(@cval)
-  resolveFrame(f, []) = f
-  resolveFrame(f, [PathEmpty(_)]) = f
-  resolveFrame(f, [PathStep(p, Label("statics/decls!P"), _)]) = {
-    f_next <- resolveFrame(f, [p])
-    #struct-read(f_next, symbol('"P"))
-  }
-  resolveFrame(f, [PathStep(p, Label("statics/decls!I"), _)]) = {
-    f_next <- resolveFrame(f, [p])
-    #struct-read(f_next, symbol('"I"))
-  }
-  // HACK: can't make a fake label in the statix spec
-  resolveFrame(f, [PathStep(p, _, _)]) = {
-    f_next <- resolveFrame(f, [p])
-    #struct-read(f_next, symbol('"I"))
-  }
+  compileType(CLASS(s, x)) = scope-type!(s)
+  compileType(FUN(ret, args)) = function<compileTypes(args) ++ [function<[compileType(ret)]>, function<[scope-type!($object)]>]>
+  compileType(ANY()) = any
+  compileType(LIST(t)) = array<compileType(t)>
+  compileType(NONETYPE()) = scope-type!($object)
+  
+  compileTypes :: List('TYPE) -> List(@ctype)
+  compileTypes([]) = []
+  compileTypes([h|t]) = [compileType(h)|compileTypes(t)]
+//
+//  resolveFrame :: @cval * List('Path) -> Pluggable(@cval)
+//  resolveFrame(f, []) = f
+//  resolveFrame(f, [PathEmpty(_)]) = f
+//  resolveFrame(f, [PathStep(p, Label("statics/decls!P"), _)]) = {
+//    f_next <- resolveFrame(f, [p])
+//    #struct-read(f_next, symbol('"P"))
+//  }
+//  resolveFrame(f, [PathStep(p, Label("statics/decls!I"), _)]) = {
+//    f_next <- resolveFrame(f, [p])
+//    #struct-read(f_next, symbol('"I"))
+//  }
+//  // HACK: can't make a fake label in the statix spec
+//  resolveFrame(f, [PathStep(p, _, _)]) = {
+//    f_next <- resolveFrame(f, [p])
+//    #struct-read(f_next, symbol('"I"))
+//  }

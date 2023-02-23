@@ -1,11 +1,11 @@
-module dynamics/exps
+module exps
 
 imports
-  dynamics/stdlib
-  dynamics/native
-  dynamics/scope
+  stdlib
+  native
+  scope
   
-  dynamics/main
+  main
   
   signatures/Expression-sig
   
@@ -50,8 +50,7 @@ rules
   } label after/1:
   
   compileExp(Var(x)) = {
-    frame <- resolveFrame($frame, path(x))
-    #struct-read(frame, symbol(x))
+    read-var!(x)
   }
   
   compileExp(a@NONE()) = compileLiteral(a)
@@ -60,21 +59,17 @@ rules
   compileExp(a@Int(_)) = compileLiteral(a)
   compileExp(a@String(_)) = compileLiteral(a)
   
-  compileExp(List([])) = var('"$emptylist")
+  compileExp(List([])) = #array-new([])
   compileExp(List(a)) = {
     av <- compileExpsBoxing(a)
-    arr <- #array-new(av)
-    lst <- #struct-new<typevar('"object")>()
-    #struct-write(lst, symbol('"$type"), str('"List"))
-    #struct-write(lst, symbol('"value"), arr)
-    lst
+    #array-new(av)
   }
   
-  compileExp(Member(a, b)) = {
+  compileExp(m@Member(a, b)) = {
     mem <- compileExp(a)
     assertNotNone(mem)
-    frame <- resolveFrame(mem, path(b))
-    #struct-read(frame, symbol(b))
+    use-scope!(m, mem)
+    read-var!(b)
   }
   
   compileExp(e@Index(a, _)) = compileIndex(type(a), e)
@@ -84,9 +79,8 @@ rules
     av <- compileExp(a)
     assertNotNone(av)
     bv <- compileExp(b)
-    arrayval <- #struct-read<array<any>>(av, symbol('"value"))
-    assertArrayWithinBounds(arrayval, bv)
-    #array-read(arrayval, bv)
+    assertArrayWithinBounds(av, bv)
+    #array-read(av, bv)
   }
   compileIndex(_, Index(a, b)) = { // string index
     av <- compileExp(a)
@@ -97,14 +91,15 @@ rules
   
   compileExp(Call(Var(name), b)) = {
     bv <- compileExpsBoxing(b)
-    var('"$fn_" + name)@(bv ++ [return, $raise])
+    fn <- read-var!(name)
+    fn@(bv ++ [return, $raise])
   } label return/1:
   
-  compileExp(Call(Member(member, prop), args)) = {
-    mem <- compileExp(member)
+  compileExp(Call(m@Member(a, b), args)) = {
+    mem <- compileExp(a)
     assertNotNone(mem)
-    frame <- resolveFrame(mem, path(prop))
-    fn <- #struct-read(frame, symbol(prop))
+    use-scope!(m, mem)
+    fn <- read-var!(b)
     
     argv <- compileExpsBoxing(args)
     fn@(argv ++ [return, $raise])
@@ -129,13 +124,7 @@ rules
     bv <- compileExp(b)
     assertNotNone(av)
     assertNotNone(bv)
-    aiv <- #struct-read<array<any>>(av, symbol('"value"))
-    biv <- #struct-read<array<any>>(bv, symbol('"value"))
-    conc <- #array-concat(aiv, biv)
-    lst <- #struct-new<typevar('"object")>()
-    #struct-write(lst, symbol('"$type"), str('"List"))
-    #struct-write(lst, symbol('"value"), conc)
-    lst
+    #array-concat(av, bv)
   }
   compileAdd([_], Add(a, b)) = { // must be string if others didn't match
     av <- compileExp(a)
@@ -213,7 +202,7 @@ rules
 
 rules
   compileLiteral :: 'Literal -> Pluggable(@cval)
-  compileLiteral(NONE()) = none()
+  compileLiteral(NONE()) = null
   compileLiteral(True()) = int('1)
   compileLiteral(False()) = int('0)
   compileLiteral(Int(i)) = int(i)
@@ -222,23 +211,27 @@ rules
   compileLiteralBoxing :: 'Literal -> Pluggable(@cval)
   compileLiteralBoxing(l) = {
     compiled <- compileLiteral(l)
-    compileExpBoxingHelper(box(l), compiled)
+    compileExpBoxingHelper(box(l), l, compiled)
   }
   
 rules
   compileExpBoxing :: 'Exp -> Pluggable(@cval)
   compileExpBoxing(e) = {
     compiled <- compileExp(e)
-    compiled_resolved <- resolveFrame(compiled, path(e))
-    compileExpBoxingHelper(box(e), compiled_resolved)
+    compileExpBoxingHelper(box(e), e, compiled)
   }
 
-  compileExpBoxingHelper :: List('string) * @cval -> Pluggable(@cval)
-  compileExpBoxingHelper([], e) = e
-  compileExpBoxingHelper([_], e) = e
-  compileExpBoxingHelper(["int"|_], e) = boxInt(e)
-  compileExpBoxingHelper(["str"|_], e) = boxString(e)
-  compileExpBoxingHelper(["bool"|_], e) = boxBool(e)
+  compileExpBoxingHelper :: List('string) * 'Exp * @cval -> Pluggable(@cval)
+  compileExpBoxingHelper([], _, e) = e
+  compileExpBoxingHelper([_], _, e) = e
+  compileExpBoxingHelper(["class"|_], e, v) = {
+    use-scope!(e, v)
+    read-scope!(e)
+  }
+  compileExpBoxingHelper(["int"|_], _, e) = boxInt(e)
+  compileExpBoxingHelper(["str"|_], _, e) = boxString(e)
+  compileExpBoxingHelper(["bool"|_], _, e) = boxBool(e)
+  compileExpBoxingHelper(["list"|_], _, e) = boxList(e)
   
 rules
   compileExps :: List('Exp) -> Pluggable(List(@cval))

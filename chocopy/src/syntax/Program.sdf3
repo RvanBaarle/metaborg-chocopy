@@ -5,11 +5,14 @@ imports Definition
 
 context-free start-symbols Program
   
-context-free sorts Program
+context-free sorts Program Stub
 
 context-free syntax
 
   Program.Program = <
+    <Stub>
   	<defs:{Definition "\n\n"}*>
   	<stmts:Statement*>
   > {layout (align-list defs && align-list stmts && align defs stmts)}
+  
+  Stub.Stub = <>  // HACK: the scope for the object class needs to be kept somewhere

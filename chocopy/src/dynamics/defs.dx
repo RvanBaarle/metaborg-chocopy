@@ -1,14 +1,14 @@
-module dynamics/defs
+module defs
 
 imports
-  dynamics/stdlib
-  dynamics/native
+  stdlib
+  native
   
-  dynamics/exps
-  dynamics/stmts
+  exps
+  stmts
   
-  dynamics/scope
-  dynamics/main
+  scope
+  main
   
   signatures/Definition-sig
   
@@ -19,83 +19,66 @@ rules
   // $initialize_<name>: takes a self ptr, vtbl ptr and initializes fields
   // <name>: allocates, calls $initialize_<name>, calls constructor
   compileFunDef(c@ClassDef(name, super, body)) = {
-    initializeName <- var('"$initialize_" + name)
-    self <- fresh-var(self)
+    builder <- var('"$fn_" + name)
+    init <- fresh-var(init)
     cont <- fresh-var(cont)
     throw <- fresh-var(throw)
     
-    classT <- compileFrameType(typevar(name), members(c) ++ methods(c), ['"I" : typevar(super), '"P": $frameT])
-    hole // TODO: this hole should not be needed
-    [fun initializeName([self, cont, throw]) = {
-        superObj <- {
-          var('"$fn_" + super)@([after, throw])
-        } label after/1:
-        // TODO: fix recursive structs
-        #struct-write(self, symbol('"P"), $frame)
-        #struct-write(self, symbol('"I"), superObj)
-        
-        with $frame = self, $frameT = classT do {
-          compileClassInitialize(self, body)
+    fix {
+//      fun builder([cont, throw]) = {
+//      }
+      fun init([cont, throw]) = {
+        parent_init <- read-var!(super)
+        parent <- {
+          parent_init@([cont2, throw])
+          label cont2/1:
         }
-        
-        cont@([])
-      },
-      
-      fun var('"$fn_" + name)([cont, throw]) = {
-        zelf <- #struct-new<classT>()
-        
-        initializeName@([zelf, after, throw]) label after/0:
-        
-//        init <- #record-read(vtable, str('"__init__"))
-//        init@([zelf, after, throw]) label after/1: // need this to be /1 for arity to be correct
-        
-        cont@([zelf])
+        use-scope!(super, parent)
+        this <- create-scope!(c, ['"statics/decls!member"])
+        compileClassInitialize(this, body)
+        cont@([this])
       }
-    ]
+    }
+    write-var!(name, init)
   }
   
   compileClassInitialize :: @cval * 'ClassBody -> Pluggable
   compileClassInitialize(_, Pass()) = hole
-  compileClassInitialize(this, members@[_|_]) = compileClassMembers(this, members)
+  compileClassInitialize(self, members@[_|_]) = compileClassMembers(self, members)
   
   compileClassMembers :: @cval * List('ClassBodyMember) -> Pluggable
   compileClassMembers(_, []) = hole
-  compileClassMembers(this, [VarDef(TypedVar(name, _), lit)|rest]) = {
+  compileClassMembers(self, [VarDef(TypedVar(name, _), lit)|rest]) = {
     lv <- compileLiteral(lit)
-    #struct-write(this, symbol(name), lv)
-  
-    compileClassMembers(this, rest)
+    write-var!(name, lv)
+    compileClassMembers(self, rest)
   }
   compileClassMembers(this, [f@FuncDef(n, [TypedVar(self, _)|args], _, body)|rest]) = {
     return <- fresh-var(return)
     throw <- fresh-var(throw)
-    name <- fresh-var(memberfn)
+    fn <- fresh-var(memberfn)
     
     // todo: can we eliminate duplication here?
     fix {
-      fun name(idsToVars(args) ++ [return, throw]) = {
-        frameT <- compileFrameType(fresh-typevar(frame), vars(f), ['"P" : $frameT])
-        frame <- #struct-new<frameT>()
-
-        #struct-write(frame, symbol('"P"), $frame)
-        with $frame = frame, $frameT = frameT, $return = return, $raise = throw do {
-          #struct-write(frame, symbol(self), this)
+      fun fn(idsToVars(args) ++ [return, throw]) = {
+        create-scope!(f, ['"statics/decls!var"])
+        with $return = return, $raise = throw do {
+          write-var!(self, this)
           wrapIdsInFrame(args)
           compileFuncBody(body)
         }
-        return@([none()])
+        return@([null])
       }
     }
     
-    frame <- resolveFrame(this, path(n))
-    #struct-write(frame, symbol(n), name)
+    write-var!(n, fn)
       
     compileClassMembers(this, rest)
   }
   
   compileNonFunDef(VarDef(TypedVar(name, _), val)) = {
     v <- compileLiteralBoxing(val)
-    #struct-write($frame, symbol(name), v)
+    write-var!(name, v)
   }
   
   compileNonFunDef(VarDef(TypedVar(name, _), NONE())) = hole  // TODO: fix None
@@ -106,7 +89,7 @@ rules
   wrapIdsInFrame :: List('TypedVar) -> Pluggable
   wrapIdsInFrame([]) = hole
   wrapIdsInFrame([TypedVar(h, _)|t]) = {
-    #struct-write($frame, symbol(h), var(h))
+    write-var!(h, var(h))
     wrapIdsInFrame(t)
   }
   
@@ -117,8 +100,7 @@ rules
   compileFuncBody :: 'FuncBody -> Pluggable
   compileFuncBody(FuncBody(defs, stmts)) = {
     compileNonFunFuncBodyMembers(defs)
-    funs <- compileFunFuncBodyMembers(defs)
-    fix { funs }
+    compileFunFuncBodyMembers(defs)
     compileStmts(stmts)
   }
   
@@ -130,29 +112,30 @@ rules
   compileNonFunFuncBodyMember(a@FuncDef(_, _, _, _)) = hole
   
 rules
-  compileFunDef :: 'Definition -> Pluggable(List(@cfun))
+  compileFunDef :: 'Definition -> Pluggable
   compileFunDef(f@FuncDef(n, args, _, body)) = {
     return <- fresh-var(return)
     throw <- fresh-var(throw)
     name <- var('"$fn_" + n)
-    hole // TODO: this hole should not be needed here
-    [fun name(idsToVars(args) ++ [return, throw]) = {
-      frameT <- compileFrameType(fresh-typevar(frame), vars(f), ['"P" : $frameT])
-      frame <- #struct-new<frameT>()
-      
-      #struct-write(frame, symbol('"P"), $frame)
-      with $frame = frame, $frameT = frameT, $return = return, $raise = throw do {
-        wrapIdsInFrame(args)
-        compileFuncBody(body)
+    //hole // TODO: this hole should not be needed here
+    fix {
+      fun name(idsToVars(args) ++ [return, throw]) = {
+        create-scope!(f, ['"statics/decls!var"])
+
+        with $return = return, $raise = throw do {
+          wrapIdsInFrame(args)
+          compileFuncBody(body)
+        }
+        return@([null])
       }
-      return@([none()])
-    }]
+    }
+    write-var!(n, name)
   }
-  compileFunDef(_) = []
+  compileFunDef(_) = hole
   
-  compileFuncBodyMemberFunDef :: 'FuncBodyMember -> Pluggable(List(@cfun))
+  compileFuncBodyMemberFunDef :: 'FuncBodyMember -> Pluggable
   compileFuncBodyMemberFunDef(d@FuncDef(_, _, _, _)) = compileFunDef(d)
-  compileFuncBodyMemberFunDef(_) = []
+  compileFuncBodyMemberFunDef(_) = hole
   
 rules
   compileNonFunDefs :: List('Definition) -> Pluggable
@@ -162,17 +145,15 @@ rules
     compileNonFunDefs(tl)
   }
   
-  compileFunDefs :: List('Definition) -> Pluggable(List(@cfun))
-  compileFunDefs([]) = []
+  compileFunDefs :: List('Definition) -> Pluggable
+  compileFunDefs([]) = hole
   compileFunDefs([h|t]) = {
-    hh <- compileFunDef(h)
-    tt <- compileFunDefs(t)
-    hh ++ tt
+    compileFunDef(h)
+    compileFunDefs(t)
   }
   compileFunDefs([h@FuncDef(_, _, _, _)|t]) = {
-    hh <- compileFunDef(h)
-    tt <- compileFunDefs(t)
-    hh ++ tt
+    compileFunDef(h)
+    compileFunDefs(t)
   }
   
   compileNonFunFuncBodyMembers :: List('FuncBodyMember) -> Pluggable
@@ -182,10 +163,9 @@ rules
     compileNonFunFuncBodyMembers(tl)
   }
   
-  compileFunFuncBodyMembers :: List('FuncBodyMember) -> Pluggable(List(@cfun))
-  compileFunFuncBodyMembers([]) = []
+  compileFunFuncBodyMembers :: List('FuncBodyMember) -> Pluggable
+  compileFunFuncBodyMembers([]) = hole
   compileFunFuncBodyMembers([h|t]) = {
-    hh <- compileFuncBodyMemberFunDef(h)
-    tt <- compileFunFuncBodyMembers(t)
-    hh ++ tt
+    compileFuncBodyMemberFunDef(h)
+    compileFunFuncBodyMembers(t)
   }
