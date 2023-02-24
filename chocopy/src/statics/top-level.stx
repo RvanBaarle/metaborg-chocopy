@@ -81,15 +81,19 @@ rules // definitions
   
 rules // classes
 
-  classOk(s, c@ClassDef(id, parent, body), i) :- {s'}
-  	new s', s'-P-> s,
+  classOk(s, c@ClassDef(id, parent, body), i) :- {s' p}
+  	new s',
   	declClass(s, s', id, i),
   	declClassFun(s, id, FUN(CLASS(s', id), [])),
   	parentOk(s, s', parent, i),
   	bodyOk(s, s', body, id),
   	@c.members := resolveMembers(s'),
   	@c.methods := resolveMemberFuns(s'),
-  	@c.scope := s'.
+  	@c.scope := s',
+  	@c.path := p, //HACK: need to get this path somehow attached to the AST, this is a bad method
+  	query ()
+  	  filter I and true
+  	    in s' |-> [(p, _)].
   
   parentOk(s, s_c, id, i) :- {is i'}
   	resolveClass(s, id) == (is, i'),
@@ -110,12 +114,12 @@ rules // classes
   	declMember(cs, id, T).
   	
   classBodyMemberOk(gs, cs, FuncDef2ClassBodyMember(f@FuncDef(id, args, ret, FuncBody(defs, stmts))), cn) :- {RT ATs s t tail x} @id.type := FUN(RT, ATs),
-  	new s, s -P-> cs,
-  	retOk(cs, ret) == RT,
-  	argsOk(cs, s, args) == ATs@[t | tail],
+  	new s, s -P-> gs,
+  	retOk(gs, ret) == RT,
+  	argsOk(gs, s, args) == ATs@[t | tail],
   	initOk(id, tail),
   	declMember(cs, id, FUN(RT, tail)),
-  	funcBodyMembersOk(gs, cs, s, defs),
+  	funcBodyMembersOk(gs, gs, s, defs),
   	stmtsOk(s, 1, stmts, RT),
   	try { t == CLASS(cs, cn) } | error $[First argument of function [id] needs to be of the enclosing class],
   	actuallyReturns(0, stmts) == x,

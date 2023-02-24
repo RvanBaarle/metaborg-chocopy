@@ -12,11 +12,17 @@ imports
   
 rules
   compileStmt :: 'Statement -> Pluggable
+  compileRaise :: 'Exp * List('TYPE) -> Pluggable
   
   compileStmt(Exp(e)) = compileExp(e)
-  compileStmt(Raise(e)) = {
+  compileStmt(Raise(e)) = compileRaise(e, type(e))
+  
+  compileRaise(e, [CLASS(_, name)]) = {
     v <- compileExp(e)
-    $raise@([v])
+    struct <- {var('"$fn_object")@([cont, $raise]) label cont/1: }
+    #struct-write(struct, symbol('"__type__"), str(name))
+    #struct-write(struct, symbol('"__value__"), v)
+    $raise@([struct])
   }
   
   compileStmt(Assign(a, b)) = {
@@ -178,7 +184,7 @@ rules
     
     fix {
       fun handler([raised]) = {
-        exnty <- #record-read(raised, str('"$type"))
+        exnty <- #struct-read(raised, symbol('"__type__"))
         compileExcepts(excepts, raised, exnty, after)
       }
     }
@@ -203,7 +209,7 @@ rules
     
     fix {
       fun handler([raised]) = {
-        exnty <- #record-read(raised, str('"$type"))
+        exnty <- #struct-read(raised, symbol('"__type__"))
         with $return = finallyFromReturn, $raise = finallyFromException do
           compileExcepts(excepts, raised, exnty, finallyFromNormalExecution)
       }
@@ -246,13 +252,13 @@ rules
 
   compileExcepts :: List('TryExcept) * @cval * @cval * @cval -> @cexp
   compileExcepts([], v, _, _) = $raise@([v])
-  compileExcepts([TryExcept(Type(t), id, body)|rest], val, exnty, after) = {
+  compileExcepts([s@TryExcept(Type(t), id, body)|rest], val, exnty, after) = {
     if #str-eq(exnty, str(t)) then {
-      vref <- #ref-new(val)  // TODO: to struct frame
-      let var(id) = vref in {
-        compileBlock(body)
-        after@([])
-      }
+      create-scope!(s, ['"statics/decls!var"])
+      vval <- #struct-read(val, symbol('"__value__"))
+      write-var!(id, vval)
+      compileBlock(body)
+      after@([])
     } else {
       compileExcepts(rest, val, exnty, after)
     }

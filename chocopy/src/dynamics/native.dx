@@ -47,7 +47,7 @@ rules
       fun pyint([cont, throw]) = cont@([int('0)])
       fun pybool([cont, throw]) = cont@([int('0)])
       fun pystr([cont, throw]) = cont@([str('"")])
-      fun object([cont, throw]) = {
+      fun var('"$build_object")([cont]) = {
         obj <- create-scope!($object, ['"statics/decls!member"])
         init <- fresh-var(init)
         cont2 <- fresh-var(cont)
@@ -59,10 +59,16 @@ rules
         }
         #struct-write(obj, symbol('"__type__"), str('"object"))
         #struct-write(obj, symbol('"__init__"), init)
-        {
-          init@([ret, throw])
-        } label ret/1:
         cont@([obj])
+      }
+      fun var('"$init_object")([arg, cont, throw]) = {
+        init <- #struct-read(arg, symbol('"__init__"))
+        init@([cont, throw])
+      }
+      fun object([cont, throw]) = {
+        this <- var('"$build_object")@([ret]) label ret/1:
+        { var('"$init_object")@([this, ret, throw]) } label ret/1:
+        cont@([this])
       }
       fun len([arg, cont, throw]) = {
         type <- #struct-read(arg, symbol('"__type__"))

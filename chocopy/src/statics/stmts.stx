@@ -42,12 +42,13 @@ rules
     
   exceptOk : scope * int * TryExcept * TYPE
   exceptsOk maps exceptOk(*, *, list(*), *)
-  exceptOk(s, i, TryExcept(ty, bind, Block(body)), RT) :- {ET s'}
+  exceptOk(s, i, t@TryExcept(ty, bind, Block(body)), RT) :- {ET s'}
     typeOk(s, ty) == ET,
     new s', s' -P-> s,
     declVar(s', bind, ET, bind),
     stmtsOk(s', i, body, RT),
-    try { ET == CLASS(_, _) } | error $[Can only catch class exceptions.].
+    try { ET == CLASS(_, _) } | error $[Can only catch class exceptions.],
+    @t.scope := s'.
     
   finallyOk : scope * int * TryFinally * TYPE
   finallyOk(_, _, NoTryFinally(), _).

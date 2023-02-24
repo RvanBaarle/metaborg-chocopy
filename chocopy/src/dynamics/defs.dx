@@ -19,23 +19,32 @@ rules
   // $initialize_<name>: takes a self ptr, vtbl ptr and initializes fields
   // <name>: allocates, calls $initialize_<name>, calls constructor
   compileFunDef(c@ClassDef(name, super, body)) = {
-    builder <- var('"$fn_" + name)
+    builder <- var('"$build_" + name)
+    initer <- var('"$init_" + name)
     init <- fresh-var(init)
+    self <- fresh-var(self)
     cont <- fresh-var(cont)
     throw <- fresh-var(throw)
     
     fix {
-//      fun builder([cont, throw]) = {
-//      }
-      fun init([cont, throw]) = {
-        parent_init <- read-var!(super)
-        parent <- {
-          parent_init@([cont2, throw])
-          label cont2/1:
-        }
+      fun builder([cont]) = {
+        parent_init <- var('"$build_" + super)
+        parent <-
+          parent_init@([ret])
+          label ret/1:
         use-scope!(super, parent)
         this <- create-scope!(c, ['"statics/decls!member"])
         compileClassInitialize(this, body)
+        cont@([this])
+      }
+      fun initer([self, cont, throw]) = {
+        use-scope!(c, self)
+        parent <- read-scope!(c)  // Scope of parent, hackily and unintuitively acquired
+        var('"$init_" + super)@([parent, cont, throw])
+      }
+      fun init([cont, throw]) = {
+        this <- builder@([ret]) label ret/1:
+        initer@([this, ret, throw]) label ret/1:
         cont@([this])
       }
     }
