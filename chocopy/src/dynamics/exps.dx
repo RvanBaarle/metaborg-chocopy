@@ -68,8 +68,9 @@ rules
   compileExp(m@Member(a, b)) = {
     mem <- compileExp(a)
     assertNotNone(mem)
-    use-scope!(m, mem)
-    read-var!(b)
+    using scope!(m, mem) {
+      read-var!(b)
+    }
   }
   
   compileExp(e@Index(a, _)) = compileIndex(type(a), e)
@@ -98,8 +99,8 @@ rules
   compileExp(Call(m@Member(a, b), args)) = {
     mem <- compileExp(a)
     assertNotNone(mem)
-    use-scope!(m, mem)
-    fn <- read-var!(b)
+    fn <- using scope!(m, mem)
+      read-var!(b)
     
     argv <- compileExpsBoxing(args)
     fn@(argv ++ [return, $raise])
@@ -211,27 +212,28 @@ rules
   compileLiteralBoxing :: 'Literal -> Pluggable(@cval)
   compileLiteralBoxing(l) = {
     compiled <- compileLiteral(l)
-    compileExpBoxingHelper(box(l), l, compiled)
+    compileExpBoxingHelper(box(l), boxscope(l), l, compiled)
   }
   
 rules
   compileExpBoxing :: 'Exp -> Pluggable(@cval)
   compileExpBoxing(e) = {
     compiled <- compileExp(e)
-    compileExpBoxingHelper(box(e), e, compiled)
+    compileExpBoxingHelper(box(e), boxscope(e), e, compiled)
   }
 
-  compileExpBoxingHelper :: List('string) * 'Exp * @cval -> Pluggable(@cval)
-  compileExpBoxingHelper([], _, e) = e
-  compileExpBoxingHelper([_], _, e) = e
-  compileExpBoxingHelper(["class"|_], e, v) = {
-    use-scope!(e, v)
-    read-scope!(e)
+  compileExpBoxingHelper :: List('string) * List('Scope) * 'Exp * @cval -> Pluggable(@cval)
+  compileExpBoxingHelper([], _, _, e) = e
+  compileExpBoxingHelper([_], _, _, e) = e
+  compileExpBoxingHelper(["class"|_], [s], e, v) = {
+    using scope!(s, v) {
+      read-scope!(e)
+    }
   }
-  compileExpBoxingHelper(["int"|_], _, e) = boxInt(e)
-  compileExpBoxingHelper(["str"|_], _, e) = boxString(e)
-  compileExpBoxingHelper(["bool"|_], _, e) = boxBool(e)
-  compileExpBoxingHelper(["list"|_], _, e) = boxList(e)
+  compileExpBoxingHelper(["int"|_], _, _, e) = boxInt(e)
+  compileExpBoxingHelper(["str"|_], _, _, e) = boxString(e)
+  compileExpBoxingHelper(["bool"|_], _, _, e) = boxBool(e)
+  compileExpBoxingHelper(["list"|_], _, _, e) = boxList(e)
   
 rules
   compileExps :: List('Exp) -> Pluggable(List(@cval))

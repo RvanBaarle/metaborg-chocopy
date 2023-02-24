@@ -32,14 +32,18 @@ rules
         parent <-
           parent_init@([ret])
           label ret/1:
-        use-scope!(super, parent)
-        this <- create-scope!(c, ['"statics/decls!member"])
-        compileClassInitialize(this, body)
+        this <- using scope!(super, parent)
+          create-scope!(c, ['"statics/decls!member"])
+        
+        using scope!(c, this) {
+          compileClassInitialize(this, body)
+        }
         cont@([this])
       }
       fun initer([self, cont, throw]) = {
-        use-scope!(c, self)
-        parent <- read-scope!(c)  // Scope of parent, hackily and unintuitively acquired
+        parent <- using scope!(c, self)
+          read-scope!(c)  // Scope of parent, hackily and unintuitively acquired
+        
         var('"$init_" + super)@([parent, cont, throw])
       }
       fun init([cont, throw]) = {
@@ -70,7 +74,8 @@ rules
     // todo: can we eliminate duplication here?
     fix {
       fun fn(idsToVars(args) ++ [return, throw]) = {
-        create-scope!(f, ['"statics/decls!var"])
+        frame <- create-scope!(f, ['"statics/decls!var"])
+        using scope!(f, frame) 
         with $return = return, $raise = throw do {
           write-var!(self, this)
           wrapIdsInFrame(args)
@@ -129,8 +134,9 @@ rules
     //hole // TODO: this hole should not be needed here
     fix {
       fun name(idsToVars(args) ++ [return, throw]) = {
-        create-scope!(f, ['"statics/decls!var"])
+        frame <- create-scope!(f, ['"statics/decls!var"])
 
+        using scope!(f, frame)
         with $return = return, $raise = throw do {
           wrapIdsInFrame(args)
           compileFuncBody(body)

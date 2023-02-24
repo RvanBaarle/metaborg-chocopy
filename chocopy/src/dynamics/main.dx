@@ -36,6 +36,7 @@ constraint-analyzer
   property funs :: ('ID * 'TYPE)
   property members :: ('ID * 'TYPE)
   property methods :: ('ID * 'TYPE)
+  property boxscope :: 'Scope
   property path :: 'Path
 
 rules
@@ -48,10 +49,12 @@ rules
   compileProgram(p@Program(stub, defs, stmts)) = {
     with $raise = var('"$err_unhandledexn"), $return = var('"$dummy_toplevelreturn"), $object = stub do {
       frame <- create-scope!(p, ['"statics/decls!var"])
-      builtins(frame)
-      compileFunDefs(defs)
-      compileNonFunDefs(defs)
-      compileStmts(stmts)
+      using scope!(p, frame) {
+        builtins(frame)
+        compileFunDefs(defs)
+        compileNonFunDefs(defs)
+        compileStmts(stmts)
+      }
     }
   }
   

@@ -108,7 +108,7 @@ rules // classes
     classBodyMembersOk(gs, cs, l, cn).
   
   classBodyMemberOk(gs, cs, VarDef2ClassBodyMember(VarDef(TypedVar(id, type), literal)), _) :- {T LT} @id.type := T,
-  	typeOk(cs, type) == T,
+  	typeOk(gs, type) == T,
   	literalOk(literal) == LT,
   	isSubtype(gs, T, LT),
   	declMember(cs, id, T).

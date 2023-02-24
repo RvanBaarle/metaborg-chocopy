@@ -40,11 +40,11 @@ rules
   
   compileAssign :: 'Target * @cval -> Pluggable
   compileAssign(t@Var(x), v) = {
-    possiblyBoxed <- compileExpBoxingHelper(box(t), t, v)
+    possiblyBoxed <- compileExpBoxingHelper(box(t), boxscope(t), t, v)
     write-var!(x, possiblyBoxed)
   }
   compileAssign(t@Index(x, y), v) = {
-    possiblyBoxed <- compileExpBoxingHelper(box(t), t, v)
+    possiblyBoxed <- compileExpBoxingHelper(box(t), boxscope(t), t, v)
     tgt <- compileExp(x)
     idx <- compileExp(y)
     assertNotNone(tgt)
@@ -52,11 +52,11 @@ rules
     #array-write(tgt, idx, possiblyBoxed)
   }
   compileAssign(t@Member(x, y), v) = {
-    possiblyBoxed <- compileExpBoxingHelper(box(t), t, v)
+    possiblyBoxed <- compileExpBoxingHelper(box(t), boxscope(t), t, v)
     tgt <- compileExp(x)
     assertNotNone(tgt)
-    use-scope!(t, tgt)
-    write-var!(y, possiblyBoxed)
+    using scope!(t, tgt)
+      write-var!(y, possiblyBoxed)
   }
   
   compileStmt(ReturnNone()) = $return@([null])
@@ -254,11 +254,13 @@ rules
   compileExcepts([], v, _, _) = $raise@([v])
   compileExcepts([s@TryExcept(Type(t), id, body)|rest], val, exnty, after) = {
     if #str-eq(exnty, str(t)) then {
-      create-scope!(s, ['"statics/decls!var"])
-      vval <- #struct-read(val, symbol('"__value__"))
-      write-var!(id, vval)
-      compileBlock(body)
-      after@([])
+      frame <- create-scope!(s, ['"statics/decls!var"])
+      using scope!(s, frame) {
+        vval <- #struct-read(val, symbol('"__value__"))
+        write-var!(id, vval)
+        compileBlock(body)
+        after@([])
+      }
     } else {
       compileExcepts(rest, val, exnty, after)
     }

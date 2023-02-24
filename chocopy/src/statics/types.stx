@@ -128,17 +128,13 @@ rules
   boxIfNeeded(x, STRING(), CLASS(_, "object")) :- @x.box += "str".
   boxIfNeeded(x, LIST(_), CLASS(_, "object")) :- @x.box += "list".
   boxIfNeeded(x, CLASS(_, "object"), CLASS(_, "object")).
-  boxIfNeeded(x, CLASS(s1, _), CLASS(_, "object")) :- {p s2}
-    query class
-      filter P* I* and eq("object")
-        min $ < I, $ < P and true
-          in s1 |-> [(_, (_, (s2, _)))],
+  boxIfNeeded(x, CLASS(s1, _), CLASS(_, "object")) :- {p}
     query ()
-      filter I* and eq(s2)
-        min $ < I and true
-          in s1 |-> [(p, _)],
+      filter I* and true
+        min I < $ and true
+          in s1 |-> [(p, _)] | error$[nolink],
     @x.box += "class",
-    @x.scope := s1,
+    @x.boxscope := s1,
     @x.path := p.
   boxIfNeeded(x, CLASS(s1, _), CLASS(s2, _)) :- {p}
     query ()
@@ -146,7 +142,7 @@ rules
         min $ < I and true
           in s1 |-> [(p, _)],
     @x.box += "class",
-    @x.scope := s1,
+    @x.boxscope := s1,
     @x.path := p.
   boxIfNeeded(x, _, _) :- @x.box += "other".
   boxIfNeeded(x, T, T).
